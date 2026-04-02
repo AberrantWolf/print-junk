@@ -51,17 +51,33 @@ pub const CROP_MARK_WIDTH: f32 = 0.25;
 /// Line width for registration marks (points)
 pub const REGISTRATION_MARK_WIDTH: f32 = 0.25;
 
-/// Length of crop marks (points)
-pub const CROP_MARK_LENGTH: f32 = 12.0;
+/// Length of crop marks (points) — 7mm, visible for guillotine operators
+pub const CROP_MARK_LENGTH: f32 = 20.0;
 
-/// Gap between crop mark and content edge (points)
-pub const CROP_MARK_GAP: f32 = 3.0;
+/// Gap between crop mark and content edge (points) — 3mm per ISO 12647
+pub const CROP_MARK_GAP: f32 = 9.0;
 
 /// Size of registration marks (points)
 pub const REGISTRATION_MARK_SIZE: f32 = 10.0;
 
 /// Size of scissors symbol (points)
 pub const SCISSORS_SIZE: f32 = 8.0;
+
+// =============================================================================
+// Sewing & Collation Marks
+// =============================================================================
+
+/// Length of sewing station tick marks (points) — ~2mm
+pub const SEWING_MARK_LENGTH: f32 = 6.0;
+
+/// Line width for sewing station marks (points)
+pub const SEWING_MARK_WIDTH: f32 = 0.5;
+
+/// Width of collation mark rectangle (points) — ~3.5mm
+pub const COLLATION_MARK_WIDTH: f32 = 10.0;
+
+/// Height of collation mark rectangle (points) — ~3.5mm
+pub const COLLATION_MARK_HEIGHT: f32 = 10.0;
 
 // =============================================================================
 // Page Numbers

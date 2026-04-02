@@ -210,8 +210,8 @@ fn octavo_page_order() -> (Vec<usize>, Vec<usize>) {
             1, 14, // Bottom-left (was bottom-right): [verso=2, recto=15]
             13, 2, // Bottom-right (was bottom-left): [verso=14, recto=3]
             // Side B - Top row (rotated 180 degrees)
-            5, 10, // Top-left (was top-right): [verso=6, recto=11]
-            9, 6, // Top-right (was top-left): [verso=10, recto=7]
+            6, 9, // Top-left (was top-right): [verso=7, recto=10]
+            10, 5, // Top-right (was top-left): [verso=11, recto=6]
         ],
     )
 }

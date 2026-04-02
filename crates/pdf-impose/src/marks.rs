@@ -6,10 +6,12 @@
 //! Marks are rendered per-leaf (the folded/trimmed unit), not per-page.
 
 use crate::constants::{
-    BEZIER_CIRCLE_FACTOR, CROP_MARK_GAP, CROP_MARK_LENGTH, CROP_MARK_WIDTH, CUT_LINE_WIDTH,
-    FOLD_LINE_WIDTH, REGISTRATION_MARK_SIZE, REGISTRATION_MARK_WIDTH, SCISSORS_SIZE,
+    BEZIER_CIRCLE_FACTOR, COLLATION_MARK_HEIGHT, COLLATION_MARK_WIDTH, CROP_MARK_GAP,
+    CROP_MARK_LENGTH, CROP_MARK_WIDTH, CUT_LINE_WIDTH, FOLD_LINE_WIDTH, REGISTRATION_MARK_SIZE,
+    REGISTRATION_MARK_WIDTH, SCISSORS_SIZE, SEWING_MARK_LENGTH, SEWING_MARK_WIDTH,
 };
-use crate::types::PrinterMarks;
+use crate::constants::mm_to_pt;
+use crate::types::{BoundaryType, BindingType, PrinterMarks, SewingConfig};
 
 // =============================================================================
 // Configuration
@@ -41,10 +43,12 @@ pub struct MarksConfig {
     /// Content boundaries for each cell (for trim marks)
     /// Stored in row-major order: row 0 col 0, row 0 col 1, ..., row 1 col 0, ...
     pub content_bounds: Vec<ContentBounds>,
-    /// Column indices where vertical cuts occur (e.g., [1] for octavo center cut)
-    pub vertical_cuts: Vec<usize>,
-    /// Row indices where horizontal cuts occur (cuts between row N and row N+1)
-    pub horizontal_cuts: Vec<usize>,
+    /// Column indices with internal vertical boundaries
+    pub vertical_boundaries: Vec<usize>,
+    /// Row indices with internal horizontal boundaries
+    pub horizontal_boundaries: Vec<usize>,
+    /// Whether internal boundaries are folds or cuts (derived from binding type)
+    pub boundary_type: BoundaryType,
 }
 
 /// Bounds of actual content within a cell
@@ -71,12 +75,30 @@ impl ContentBounds {
     }
 }
 
+/// Per-sheet rendering context for marks that depend on binding/signature info.
+///
+/// Separated from `MarksConfig` because this carries runtime context that
+/// varies per sheet, while `MarksConfig` is purely geometric.
+pub struct MarksContext {
+    /// Binding type (for auto-filtering inapplicable marks)
+    pub binding_type: BindingType,
+    /// Signature index (0-based, for collation mark staircase positioning)
+    pub signature_index: usize,
+    /// Total number of signatures (for collation mark step sizing)
+    pub total_signatures: usize,
+    /// Sewing station configuration
+    pub sewing_config: SewingConfig,
+}
+
 // =============================================================================
 // Main Entry Point
 // =============================================================================
 
-/// Generate all printer's marks as PDF content stream operations
-pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig) -> String {
+/// Generate all printer's marks as PDF content stream operations.
+///
+/// Pass `ctx` as `None` when calling from the standalone render API (no binding context).
+/// Sewing and collation marks require a context and are silently skipped without one.
+pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig, ctx: Option<&MarksContext>) -> String {
     let mut ops = String::new();
 
     // Save graphics state and set default stroke color
@@ -102,6 +124,16 @@ pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig) -> String {
         ops.push_str(&generate_registration_marks(config));
     }
 
+    if let Some(ctx) = ctx {
+        if marks.sewing_marks {
+            ops.push_str(&generate_sewing_marks(config, ctx));
+        }
+
+        if marks.collation_marks {
+            ops.push_str(&generate_collation_marks(config, ctx));
+        }
+    }
+
     // Restore graphics state
     ops.push_str("Q\n");
 
@@ -112,20 +144,28 @@ pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig) -> String {
 // Fold Lines
 // =============================================================================
 
-/// Generate fold lines (dashed lines at fold positions)
+/// Generate fold lines (dashed lines at fold positions).
+///
+/// Fold lines are drawn at all internal boundaries when `boundary_type == Fold`.
+/// When `boundary_type == Cut`, there are no folds to draw.
 fn generate_fold_lines(config: &MarksConfig) -> String {
-    let mut ops = String::new();
+    if config.boundary_type != BoundaryType::Fold {
+        return String::new();
+    }
 
-    // Set line properties for fold lines (dashed)
+    let mut ops = String::new();
     ops.push_str(&format!("{} w\n[6 3] 0 d\n", FOLD_LINE_WIDTH));
 
-    // Vertical fold lines (between columns, skipping cut positions)
-    for col in 1..config.cols {
-        if config.vertical_cuts.contains(&(col - 1)) {
-            continue; // This boundary is a cut, not a fold
-        }
-        let x = config.leaf_left + col as f32 * config.cell_width;
+    // Vertical fold lines
+    for &col in &config.vertical_boundaries {
+        let x = config.leaf_left + (col + 1) as f32 * config.cell_width;
         ops.push_str(&draw_line(x, config.leaf_bottom, x, config.leaf_top));
+    }
+
+    // Horizontal fold lines
+    for &row in &config.horizontal_boundaries {
+        let y = config.leaf_bottom + (row + 1) as f32 * config.cell_height;
+        ops.push_str(&draw_line(config.leaf_left, y, config.leaf_right, y));
     }
 
     // Reset to solid line
@@ -138,16 +178,21 @@ fn generate_fold_lines(config: &MarksConfig) -> String {
 // Cut Lines
 // =============================================================================
 
-/// Generate cut lines (solid lines with scissors at cut positions)
+/// Generate cut lines (solid lines with scissors at cut positions).
+///
+/// Cut lines are drawn at all internal boundaries when `boundary_type == Cut`.
+/// When `boundary_type == Fold`, there are no cuts to draw.
 fn generate_cut_lines(config: &MarksConfig) -> String {
-    let mut ops = String::new();
+    if config.boundary_type != BoundaryType::Cut {
+        return String::new();
+    }
 
-    // Set line properties for cut lines (solid)
+    let mut ops = String::new();
     ops.push_str(&format!("{} w\n[] 0 d\n", CUT_LINE_WIDTH));
 
-    // Horizontal cut lines from config
-    for &cut_row in &config.horizontal_cuts {
-        let y = config.leaf_bottom + (cut_row + 1) as f32 * config.cell_height;
+    // Horizontal cut lines
+    for &row in &config.horizontal_boundaries {
+        let y = config.leaf_bottom + (row + 1) as f32 * config.cell_height;
         ops.push_str(&draw_line(config.leaf_left, y, config.leaf_right, y));
         ops.push_str(&draw_scissors_horizontal(
             config.leaf_left - SCISSORS_SIZE - 3.0,
@@ -155,9 +200,9 @@ fn generate_cut_lines(config: &MarksConfig) -> String {
         ));
     }
 
-    // Vertical cut lines from config
-    for &cut_col in &config.vertical_cuts {
-        let x = config.leaf_left + (cut_col + 1) as f32 * config.cell_width;
+    // Vertical cut lines
+    for &col in &config.vertical_boundaries {
+        let x = config.leaf_left + (col + 1) as f32 * config.cell_width;
         ops.push_str(&draw_line(x, config.leaf_bottom, x, config.leaf_top));
         ops.push_str(&draw_scissors_vertical(
             x,
@@ -174,19 +219,17 @@ fn generate_cut_lines(config: &MarksConfig) -> String {
 
 /// Generate trim marks at cut positions.
 ///
-/// Trim marks appear at cell corners that are adjacent to cut lines.
-/// According to traditional bookbinding, these indicate where pages will
-/// be trimmed after folding. They appear between leaf margins and cut margins.
+/// Trim marks appear at cell corners adjacent to cut lines, indicating where
+/// pages will be trimmed. Only drawn when `boundary_type == Cut` — fold
+/// boundaries don't need trim guidance.
 fn generate_trim_marks(config: &MarksConfig) -> String {
-    if config.content_bounds.is_empty() {
+    if config.boundary_type != BoundaryType::Cut || config.content_bounds.is_empty() {
         return String::new();
     }
 
     let mut ops = String::new();
     ops.push_str(&format!("{} w\n[] 0 d\n", CROP_MARK_WIDTH));
 
-    // For each cell, determine which edges are at cut positions and draw
-    // trim marks only at those corners
     for row in 0..config.rows {
         for col in 0..config.cols {
             let idx = row * config.cols + col;
@@ -198,17 +241,11 @@ fn generate_trim_marks(config: &MarksConfig) -> String {
                 continue;
             }
 
-            // Check if this cell has a cut on its right edge
-            let cut_right = config.vertical_cuts.contains(&col);
-            // Check if this cell has a cut on its left edge
-            let cut_left = col > 0 && config.vertical_cuts.contains(&(col - 1));
-            // Check if this cell has a cut on its bottom edge (cut between this row and row below)
-            // Note: row 0 is top, so "bottom" of row 0 is the cut at index 0
-            let cut_bottom = config.horizontal_cuts.contains(&row);
-            // Check if this cell has a cut on its top edge
-            let cut_top = row > 0 && config.horizontal_cuts.contains(&(row - 1));
+            let cut_right = config.vertical_boundaries.contains(&col);
+            let cut_left = col > 0 && config.vertical_boundaries.contains(&(col - 1));
+            let cut_bottom = config.horizontal_boundaries.contains(&row);
+            let cut_top = row > 0 && config.horizontal_boundaries.contains(&(row - 1));
 
-            // Draw trim marks at corners adjacent to cuts
             if cut_top || cut_left {
                 ops.push_str(&draw_corner_mark(bounds.x, bounds.top(), -1.0, 1.0));
             }
@@ -318,6 +355,121 @@ fn draw_registration_mark(cx: f32, cy: f32, half_size: f32) -> String {
 
     // Circle (slightly smaller than crosshair)
     ops.push_str(&draw_circle(cx, cy, half_size * 0.7));
+
+    ops
+}
+
+// =============================================================================
+// Sewing Station Marks
+// =============================================================================
+
+/// Generate sewing station marks along the spine fold.
+///
+/// Auto-filters: only renders for signature/case binding.
+/// Draws small horizontal tick marks at kettle stitch and sewing station positions
+/// along the spine fold of each spread column.
+fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
+    if !ctx.binding_type.uses_signatures() {
+        return String::new();
+    }
+
+    let mut ops = String::new();
+    ops.push_str(&format!("{} w\n[] 0 d\n", SEWING_MARK_WIDTH));
+
+    let kettle_offset_pt = mm_to_pt(ctx.sewing_config.kettle_offset_mm);
+    let half_mark = SEWING_MARK_LENGTH / 2.0;
+
+    // The spine fold is at the center of each spread column.
+    // Each spread column spans 2 cells (verso + recto), but in our grid model
+    // cols = number of spread columns. The spine of spread column i is at the
+    // center of that column's width in the leaf.
+    let spread_col_width = (config.leaf_right - config.leaf_left)
+        / config.cols.max(1) as f32;
+
+    for col in 0..config.cols {
+        let spine_x = config.leaf_left + (col as f32 + 0.5) * spread_col_width;
+
+        // For multi-row arrangements, draw sewing marks in each row
+        for row in 0..config.rows {
+            let cell_bottom = config.leaf_bottom + row as f32 * config.cell_height;
+            let cell_top = cell_bottom + config.cell_height;
+
+            // Kettle stitch positions (near head and tail)
+            let kettle_top = cell_top - kettle_offset_pt;
+            let kettle_bottom = cell_bottom + kettle_offset_pt;
+
+            // Draw kettle stitch marks
+            ops.push_str(&draw_line(
+                spine_x - half_mark, kettle_top, spine_x + half_mark, kettle_top,
+            ));
+            ops.push_str(&draw_line(
+                spine_x - half_mark, kettle_bottom, spine_x + half_mark, kettle_bottom,
+            ));
+
+            // Evenly spaced sewing stations between kettle positions
+            let station_count = ctx.sewing_config.station_count;
+            if station_count > 0 {
+                let span = kettle_top - kettle_bottom;
+                let step = span / (station_count + 1) as f32;
+
+                for i in 1..=station_count {
+                    let y = kettle_bottom + i as f32 * step;
+                    ops.push_str(&draw_line(
+                        spine_x - half_mark, y, spine_x + half_mark, y,
+                    ));
+                }
+            }
+        }
+    }
+
+    ops
+}
+
+// =============================================================================
+// Collation Marks (Back Marks)
+// =============================================================================
+
+/// Generate collation marks (staircase pattern on spine for signature ordering).
+///
+/// Auto-filters: only renders for signature/case binding with multiple signatures.
+/// Draws a small filled rectangle on the spine fold edge that steps down per
+/// signature, forming a visible staircase when signatures are stacked in order.
+fn generate_collation_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
+    if !ctx.binding_type.uses_signatures() || ctx.total_signatures <= 1 {
+        return String::new();
+    }
+
+    let mut ops = String::new();
+    // Set fill color to black
+    ops.push_str("0 0 0 rg\n");
+
+    let leaf_height = config.leaf_top - config.leaf_bottom;
+
+    // Step size: distribute marks across the spine height
+    let usable_height = leaf_height - COLLATION_MARK_HEIGHT;
+    let step = if ctx.total_signatures > 1 {
+        usable_height / (ctx.total_signatures - 1) as f32
+    } else {
+        0.0
+    };
+
+    // Y position steps down from head (top) toward tail (bottom)
+    let mark_y = config.leaf_top - COLLATION_MARK_HEIGHT
+        - ctx.signature_index as f32 * step;
+
+    // Draw on the spine fold (center of each spread column)
+    let spread_col_width = (config.leaf_right - config.leaf_left)
+        / config.cols.max(1) as f32;
+
+    for col in 0..config.cols {
+        let spine_x = config.leaf_left + (col as f32 + 0.5) * spread_col_width;
+        // Rectangle centered on the spine
+        let rect_x = spine_x - COLLATION_MARK_WIDTH / 2.0;
+        ops.push_str(&format!(
+            "{} {} {} {} re f\n",
+            rect_x, mark_y, COLLATION_MARK_WIDTH, COLLATION_MARK_HEIGHT
+        ));
+    }
 
     ops
 }

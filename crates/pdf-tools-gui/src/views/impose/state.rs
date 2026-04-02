@@ -9,6 +9,7 @@ pub struct ImposeState {
     pub preview_doc_id: Option<DocumentId>,
     pub preview_page_count: usize,
     pub stats: Option<ImpositionStatistics>,
+    #[allow(dead_code)]
     pub loaded_docs: Vec<(PathBuf, usize)>,
     pub preview_viewer: Option<ViewerState>,
     pub needs_regeneration: bool,

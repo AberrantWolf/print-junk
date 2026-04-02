@@ -122,9 +122,10 @@ fn test_spread_content_with_cuts() {
 
     let content = calculate_spread_content(&spread_pos, &margins, cut_edges);
 
-    // With cut on left, verso uses cut_mm instead of fore_edge_mm
+    // With cut on left, verso uses fore_edge + cut margin
+    let fore_edge_pt = mm_to_pt(15.0);
     let cut_pt = mm_to_pt(5.0);
-    assert!((content.verso.x - cut_pt).abs() < 0.1);
+    assert!((content.verso.x - (fore_edge_pt + cut_pt)).abs() < 0.1);
 
     // With cut on top, both pages have reduced height
     let top_pt = mm_to_pt(10.0);
