@@ -365,6 +365,7 @@ pub struct LeafMarginsEditor<'a> {
     bottom: &'a mut f32,
     fore_edge: &'a mut f32,
     spine: &'a mut f32,
+    cut: &'a mut f32,
     max: f32,
 }
 
@@ -374,6 +375,7 @@ impl<'a> LeafMarginsEditor<'a> {
         bottom: &'a mut f32,
         fore_edge: &'a mut f32,
         spine: &'a mut f32,
+        cut: &'a mut f32,
         max: f32,
     ) -> Self {
         Self {
@@ -381,6 +383,7 @@ impl<'a> LeafMarginsEditor<'a> {
             bottom,
             fore_edge,
             spine,
+            cut,
             max,
         }
     }
@@ -392,6 +395,7 @@ impl<'a> LeafMarginsEditor<'a> {
         changed |= labeled_drag_clamped(ui, "Bottom (tail):", self.bottom, 0.0..=self.max, " mm");
         changed |= labeled_drag_clamped(ui, "Fore edge:", self.fore_edge, 0.0..=self.max, " mm");
         changed |= labeled_drag_clamped(ui, "Spine (gutter):", self.spine, 0.0..=self.max, " mm");
+        changed |= labeled_drag_clamped(ui, "Cut:", self.cut, 0.0..=self.max, " mm");
 
         changed
     }

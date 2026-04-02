@@ -44,6 +44,7 @@ pub(crate) fn merge_documents(documents: &[Document]) -> Result<Document> {
         return Ok(documents[0].clone());
     }
 
-    // TODO: Properly merge all pages with resources
-    Ok(documents[0].clone())
+    Err(ImposeError::Config(
+        "Multiple input documents not yet supported; concatenate PDFs first".to_string(),
+    ))
 }

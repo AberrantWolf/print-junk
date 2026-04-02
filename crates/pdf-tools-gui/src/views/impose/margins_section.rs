@@ -30,6 +30,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
                     &mut state.options.margins.leaf.bottom_mm,
                     &mut state.options.margins.leaf.fore_edge_mm,
                     &mut state.options.margins.leaf.spine_mm,
+                    &mut state.options.margins.leaf.cut_mm,
                     50.0,
                 )
                 .show(ui);

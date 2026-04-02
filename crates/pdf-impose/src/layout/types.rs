@@ -1,11 +1,268 @@
 //! Layout data types for imposition
 //!
-//! These types represent the intermediate layout calculations between
-//! signature ordering and PDF rendering:
-//! - SignatureSlot: Where a page goes in the signature
-//! - GridLayout: The cell arrangement on a sheet
-//! - PagePlacement: Final rendering information for a page
-//! - SheetLayout: All placements for one side of a sheet
+//! The fundamental unit is a **Spread** (verso + recto page pair).
+//! Arrangements are built by composition:
+//! - Folio = 1 spread per sheet side
+//! - Quarto = 2 spreads stacked (top rotated 180°)
+//! - Octavo = 4 spreads in 2x2 (top row rotated 180°)
+//!
+//! Key types:
+//! - `Spread` - A verso + recto page pair
+//! - `SpreadPosition` - Where a spread is placed on the sheet
+//! - `SpreadCutEdges` - Which edges have cut lines
+//! - `PagePlacement` - Final rendering information for a single page
+//! - `SpreadSheetLayout` - All spreads for one side of a sheet
+
+// =============================================================================
+// Point
+// =============================================================================
+
+/// A 2D point in PDF coordinate space (origin at bottom-left)
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Point {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Point {
+    /// Create a new point
+    pub const fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
+
+    /// Origin point (0, 0)
+    pub const fn origin() -> Self {
+        Self { x: 0.0, y: 0.0 }
+    }
+
+    /// Offset this point by the given amounts
+    pub fn offset(&self, dx: f32, dy: f32) -> Self {
+        Self {
+            x: self.x + dx,
+            y: self.y + dy,
+        }
+    }
+}
+
+impl From<(f32, f32)> for Point {
+    fn from((x, y): (f32, f32)) -> Self {
+        Self { x, y }
+    }
+}
+
+impl From<Point> for (f32, f32) {
+    fn from(p: Point) -> Self {
+        (p.x, p.y)
+    }
+}
+
+// =============================================================================
+// Spread Types (New Compositional Model)
+// =============================================================================
+
+/// A spread is the fundamental unit of imposition: two facing pages.
+///
+/// After folding, a spread becomes two facing pages in the book:
+/// - Verso (left): even page numbers (2, 4, 6, ...)
+/// - Recto (right): odd page numbers (1, 3, 5, ...)
+///
+/// Note: Page 1 (title page) is recto, so verso pages are "before" recto
+/// in reading order within a spread.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Spread {
+    /// Left page (even page numbers). None = blank.
+    pub verso_page: Option<usize>,
+    /// Right page (odd page numbers). None = blank.
+    pub recto_page: Option<usize>,
+}
+
+impl Spread {
+    /// Create a new spread with both pages
+    pub fn new(verso: Option<usize>, recto: Option<usize>) -> Self {
+        Self {
+            verso_page: verso,
+            recto_page: recto,
+        }
+    }
+
+    /// Create a blank spread
+    pub fn blank() -> Self {
+        Self::default()
+    }
+
+    /// Check if both pages are blank
+    pub fn is_blank(&self) -> bool {
+        self.verso_page.is_none() && self.recto_page.is_none()
+    }
+
+    /// Check if at least one page has content
+    pub fn has_content(&self) -> bool {
+        self.verso_page.is_some() || self.recto_page.is_some()
+    }
+}
+
+/// Position and orientation of a spread within a sheet layout.
+///
+/// A spread position defines where the spread's two pages will be
+/// placed on the physical sheet, including any rotation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpreadPosition {
+    /// The spread's page assignments
+    pub spread: Spread,
+    /// Origin point (bottom-left of spread bounding box)
+    pub origin: Point,
+    /// Total width of the spread area (both pages combined)
+    pub width: f32,
+    /// Height of the spread area
+    pub height: f32,
+    /// Whether this spread is rotated 180 degrees
+    pub rotated: bool,
+    /// Index of this spread within the arrangement (0-based)
+    pub spread_index: usize,
+}
+
+impl SpreadPosition {
+    /// Create a new spread position
+    pub fn new(
+        spread: Spread,
+        origin: Point,
+        width: f32,
+        height: f32,
+        rotated: bool,
+        spread_index: usize,
+    ) -> Self {
+        Self {
+            spread,
+            origin,
+            width,
+            height,
+            rotated,
+            spread_index,
+        }
+    }
+
+    /// Create an empty spread position (for layout calculation)
+    pub fn empty(
+        origin: Point,
+        width: f32,
+        height: f32,
+        rotated: bool,
+        spread_index: usize,
+    ) -> Self {
+        Self {
+            spread: Spread::blank(),
+            origin,
+            width,
+            height,
+            rotated,
+            spread_index,
+        }
+    }
+
+    /// Get the bounding rectangle for this spread
+    pub fn bounds(&self) -> Rect {
+        Rect::new(self.origin.x, self.origin.y, self.width, self.height)
+    }
+
+    /// Width of each page (half the spread width)
+    pub fn page_width(&self) -> f32 {
+        self.width / 2.0
+    }
+
+    /// Get rotation in degrees (0 or 180)
+    pub fn rotation_degrees(&self) -> f32 {
+        if self.rotated { 180.0 } else { 0.0 }
+    }
+
+    /// Get the center point of this spread
+    pub fn center(&self) -> Point {
+        Point::new(
+            self.origin.x + self.width / 2.0,
+            self.origin.y + self.height / 2.0,
+        )
+    }
+}
+
+/// Which edges of a spread have cut lines (vs folds or sheet edges).
+///
+/// Cut edges need cut margin applied. This is used to determine
+/// where trim marks should appear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SpreadCutEdges {
+    /// Cut line above this spread
+    pub top: bool,
+    /// Cut line below this spread
+    pub bottom: bool,
+    /// Cut line to the left of this spread
+    pub left: bool,
+    /// Cut line to the right of this spread
+    pub right: bool,
+}
+
+impl SpreadCutEdges {
+    /// No cuts on any edge
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// Check if any edge has a cut
+    pub fn any(&self) -> bool {
+        self.top || self.bottom || self.left || self.right
+    }
+}
+
+/// Content areas for the two pages in a spread.
+///
+/// These are the final rectangles where page content is rendered,
+/// after applying all margins.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpreadContentAreas {
+    /// Content area for the verso (left) page
+    pub verso: Rect,
+    /// Content area for the recto (right) page
+    pub recto: Rect,
+}
+
+impl SpreadContentAreas {
+    /// Create new spread content areas
+    pub fn new(verso: Rect, recto: Rect) -> Self {
+        Self { verso, recto }
+    }
+}
+
+/// A sheet side layout using the spread-based model.
+///
+/// Contains all spread positions for one side of a physical sheet.
+#[derive(Debug, Clone)]
+pub struct SpreadSheetLayout {
+    /// Which side of the physical sheet
+    pub side: SheetSide,
+    /// All spread positions for this side
+    pub spreads: Vec<SpreadPosition>,
+    /// The leaf area bounds (inside sheet margins)
+    pub leaf_bounds: Rect,
+}
+
+impl SpreadSheetLayout {
+    /// Create a new spread sheet layout
+    pub fn new(side: SheetSide, spreads: Vec<SpreadPosition>, leaf_bounds: Rect) -> Self {
+        Self {
+            side,
+            spreads,
+            leaf_bounds,
+        }
+    }
+
+    /// Number of spreads on this sheet side
+    pub fn spread_count(&self) -> usize {
+        self.spreads.len()
+    }
+
+    /// Get spreads that have any content
+    pub fn non_blank_spreads(&self) -> impl Iterator<Item = &SpreadPosition> {
+        self.spreads.iter().filter(|s| s.spread.has_content())
+    }
+}
 
 // =============================================================================
 // Page and Sheet Sides
@@ -153,94 +410,6 @@ impl SignatureSlot {
     /// Get rotation in degrees (0 or 180)
     pub fn rotation_degrees(&self) -> f32 {
         if self.rotated { 180.0 } else { 0.0 }
-    }
-}
-
-// =============================================================================
-// Grid Layout
-// =============================================================================
-
-/// Grid layout for a folding scheme
-///
-/// Describes the physical layout of pages on a sheet, including
-/// where folds and cuts occur.
-#[derive(Debug, Clone, PartialEq)]
-pub struct GridLayout {
-    /// Number of columns in the page grid
-    pub cols: usize,
-    /// Number of rows in the page grid
-    pub rows: usize,
-    /// Width of each cell in points
-    pub cell_width_pt: f32,
-    /// Height of each cell in points
-    pub cell_height_pt: f32,
-    /// Column indices that have a fold on their right edge
-    /// (e.g., for 2 cols: [0] means fold between col 0 and col 1)
-    pub vertical_folds: Vec<usize>,
-    /// Row indices that have a fold on their bottom edge
-    /// (e.g., for 2 rows: [0] means fold between row 0 and row 1)
-    pub horizontal_folds: Vec<usize>,
-    /// Column indices where vertical cuts occur
-    /// (used in octavo where center is cut, not folded)
-    pub vertical_cuts: Vec<usize>,
-    /// Whether the spine runs horizontally (true for landscape quarto)
-    pub horizontal_spine: bool,
-}
-
-impl GridLayout {
-    /// Check if a column has a fold on its right edge
-    pub fn has_fold_right(&self, col: usize) -> bool {
-        self.vertical_folds.contains(&col)
-    }
-
-    /// Check if a column has a fold on its left edge
-    pub fn has_fold_left(&self, col: usize) -> bool {
-        col > 0 && self.vertical_folds.contains(&(col - 1))
-    }
-
-    /// Check if a row has a fold on its bottom edge
-    pub fn has_fold_bottom(&self, row: usize) -> bool {
-        self.horizontal_folds.contains(&row)
-    }
-
-    /// Check if a row has a fold on its top edge
-    pub fn has_fold_top(&self, row: usize) -> bool {
-        row > 0 && self.horizontal_folds.contains(&(row - 1))
-    }
-
-    /// Check if a column has a cut on its right edge
-    pub fn has_cut_right(&self, col: usize) -> bool {
-        self.vertical_cuts.contains(&col)
-    }
-
-    /// Check if a column has a cut on its left edge
-    pub fn has_cut_left(&self, col: usize) -> bool {
-        col > 0 && self.vertical_cuts.contains(&(col - 1))
-    }
-
-    /// Total number of cells in the grid
-    pub fn cell_count(&self) -> usize {
-        self.cols * self.rows
-    }
-
-    /// Check if a position is on the outer left edge
-    pub fn is_outer_left(&self, col: usize) -> bool {
-        col == 0
-    }
-
-    /// Check if a position is on the outer right edge
-    pub fn is_outer_right(&self, col: usize) -> bool {
-        col == self.cols - 1
-    }
-
-    /// Check if a position is on the outer top edge
-    pub fn is_outer_top(&self, row: usize) -> bool {
-        row == 0
-    }
-
-    /// Check if a position is on the outer bottom edge
-    pub fn is_outer_bottom(&self, row: usize) -> bool {
-        row == self.rows - 1
     }
 }
 

@@ -15,6 +15,7 @@ mod simple;
 pub use io::{load_multiple_pdfs, load_pdf, save_pdf};
 
 use crate::constants::mm_to_pt;
+use crate::layout::Rect;
 use crate::options::ImpositionOptions;
 use crate::types::*;
 use flyleaves::add_flyleaves;
@@ -73,4 +74,19 @@ pub(crate) fn sheet_dimensions_pt(options: &ImpositionOptions) -> (f32, f32) {
         .output_paper_size
         .dimensions_with_orientation(options.output_orientation);
     (mm_to_pt(width_mm), mm_to_pt(height_mm))
+}
+
+/// Calculate the leaf area bounds (inside sheet margins)
+pub(crate) fn calculate_leaf_bounds(
+    options: &ImpositionOptions,
+    width_pt: f32,
+    height_pt: f32,
+) -> Rect {
+    let margins = &options.margins.sheet;
+    Rect::new(
+        mm_to_pt(margins.left_mm),
+        mm_to_pt(margins.bottom_mm),
+        width_pt - mm_to_pt(margins.left_mm) - mm_to_pt(margins.right_mm),
+        height_pt - mm_to_pt(margins.top_mm) - mm_to_pt(margins.bottom_mm),
+    )
 }

@@ -39,7 +39,12 @@ pub struct MarksConfig {
     /// Top edge of the leaf area in points
     pub leaf_top: f32,
     /// Content boundaries for each cell (for trim marks)
+    /// Stored in row-major order: row 0 col 0, row 0 col 1, ..., row 1 col 0, ...
     pub content_bounds: Vec<ContentBounds>,
+    /// Column indices where vertical cuts occur (e.g., [1] for octavo center cut)
+    pub vertical_cuts: Vec<usize>,
+    /// Row indices where horizontal cuts occur (cuts between row N and row N+1)
+    pub horizontal_cuts: Vec<usize>,
 }
 
 /// Bounds of actual content within a cell
@@ -114,11 +119,10 @@ fn generate_fold_lines(config: &MarksConfig) -> String {
     // Set line properties for fold lines (dashed)
     ops.push_str(&format!("{} w\n[6 3] 0 d\n", FOLD_LINE_WIDTH));
 
-    // Vertical fold lines (between columns)
-    // For 4-column layouts (octavo), the center line (col 2) is a cut, not a fold
+    // Vertical fold lines (between columns, skipping cut positions)
     for col in 1..config.cols {
-        if config.cols == 4 && col == 2 {
-            continue; // Skip center line for octavo - it's a cut line
+        if config.vertical_cuts.contains(&(col - 1)) {
+            continue; // This boundary is a cut, not a fold
         }
         let x = config.leaf_left + col as f32 * config.cell_width;
         ops.push_str(&draw_line(x, config.leaf_bottom, x, config.leaf_top));
@@ -141,9 +145,9 @@ fn generate_cut_lines(config: &MarksConfig) -> String {
     // Set line properties for cut lines (solid)
     ops.push_str(&format!("{} w\n[] 0 d\n", CUT_LINE_WIDTH));
 
-    // Horizontal cut lines (between rows)
-    for row in 1..config.rows {
-        let y = config.leaf_bottom + row as f32 * config.cell_height;
+    // Horizontal cut lines from config
+    for &cut_row in &config.horizontal_cuts {
+        let y = config.leaf_bottom + (cut_row + 1) as f32 * config.cell_height;
         ops.push_str(&draw_line(config.leaf_left, y, config.leaf_right, y));
         ops.push_str(&draw_scissors_horizontal(
             config.leaf_left - SCISSORS_SIZE - 3.0,
@@ -151,9 +155,9 @@ fn generate_cut_lines(config: &MarksConfig) -> String {
         ));
     }
 
-    // Vertical center cut for 4-column layouts (octavo)
-    if config.cols == 4 {
-        let x = config.leaf_left + 2.0 * config.cell_width;
+    // Vertical cut lines from config
+    for &cut_col in &config.vertical_cuts {
+        let x = config.leaf_left + (cut_col + 1) as f32 * config.cell_width;
         ops.push_str(&draw_line(x, config.leaf_bottom, x, config.leaf_top));
         ops.push_str(&draw_scissors_vertical(
             x,
@@ -168,7 +172,11 @@ fn generate_cut_lines(config: &MarksConfig) -> String {
 // Trim Marks
 // =============================================================================
 
-/// Generate trim marks (L-shaped marks at corners of each content area)
+/// Generate trim marks at cut positions.
+///
+/// Trim marks appear at cell corners that are adjacent to cut lines.
+/// According to traditional bookbinding, these indicate where pages will
+/// be trimmed after folding. They appear between leaf margins and cut margins.
 fn generate_trim_marks(config: &MarksConfig) -> String {
     if config.content_bounds.is_empty() {
         return String::new();
@@ -177,16 +185,43 @@ fn generate_trim_marks(config: &MarksConfig) -> String {
     let mut ops = String::new();
     ops.push_str(&format!("{} w\n[] 0 d\n", CROP_MARK_WIDTH));
 
-    for bounds in &config.content_bounds {
-        if !bounds.is_valid() {
-            continue;
+    // For each cell, determine which edges are at cut positions and draw
+    // trim marks only at those corners
+    for row in 0..config.rows {
+        for col in 0..config.cols {
+            let idx = row * config.cols + col;
+            if idx >= config.content_bounds.len() {
+                continue;
+            }
+            let bounds = &config.content_bounds[idx];
+            if !bounds.is_valid() {
+                continue;
+            }
+
+            // Check if this cell has a cut on its right edge
+            let cut_right = config.vertical_cuts.contains(&col);
+            // Check if this cell has a cut on its left edge
+            let cut_left = col > 0 && config.vertical_cuts.contains(&(col - 1));
+            // Check if this cell has a cut on its bottom edge (cut between this row and row below)
+            // Note: row 0 is top, so "bottom" of row 0 is the cut at index 0
+            let cut_bottom = config.horizontal_cuts.contains(&row);
+            // Check if this cell has a cut on its top edge
+            let cut_top = row > 0 && config.horizontal_cuts.contains(&(row - 1));
+
+            // Draw trim marks at corners adjacent to cuts
+            if cut_top || cut_left {
+                ops.push_str(&draw_corner_mark(bounds.x, bounds.top(), -1.0, 1.0));
+            }
+            if cut_top || cut_right {
+                ops.push_str(&draw_corner_mark(bounds.right(), bounds.top(), 1.0, 1.0));
+            }
+            if cut_bottom || cut_left {
+                ops.push_str(&draw_corner_mark(bounds.x, bounds.y, -1.0, -1.0));
+            }
+            if cut_bottom || cut_right {
+                ops.push_str(&draw_corner_mark(bounds.right(), bounds.y, 1.0, -1.0));
+            }
         }
-        ops.push_str(&draw_corner_marks(
-            bounds.x,
-            bounds.y,
-            bounds.right(),
-            bounds.top(),
-        ));
     }
 
     ops
@@ -212,63 +247,34 @@ fn generate_crop_marks(config: &MarksConfig) -> String {
 /// Draw L-shaped corner marks at all four corners of a rectangle
 fn draw_corner_marks(left: f32, bottom: f32, right: f32, top: f32) -> String {
     let mut ops = String::new();
+    ops.push_str(&draw_corner_mark(left, top, -1.0, 1.0));
+    ops.push_str(&draw_corner_mark(right, top, 1.0, 1.0));
+    ops.push_str(&draw_corner_mark(left, bottom, -1.0, -1.0));
+    ops.push_str(&draw_corner_mark(right, bottom, 1.0, -1.0));
+    ops
+}
 
-    // Top-left corner
+/// Draw L-shaped mark at a corner point.
+///
+/// `x_sign` and `y_sign` control the direction of the mark arms:
+/// - Top-left: (-1.0, 1.0)
+/// - Top-right: (1.0, 1.0)
+/// - Bottom-left: (-1.0, -1.0)
+/// - Bottom-right: (1.0, -1.0)
+fn draw_corner_mark(x: f32, y: f32, x_sign: f32, y_sign: f32) -> String {
+    let mut ops = String::new();
     ops.push_str(&draw_line(
-        left,
-        top + CROP_MARK_GAP,
-        left,
-        top + CROP_MARK_GAP + CROP_MARK_LENGTH,
+        x,
+        y + y_sign * CROP_MARK_GAP,
+        x,
+        y + y_sign * (CROP_MARK_GAP + CROP_MARK_LENGTH),
     ));
     ops.push_str(&draw_line(
-        left - CROP_MARK_GAP,
-        top,
-        left - CROP_MARK_GAP - CROP_MARK_LENGTH,
-        top,
+        x + x_sign * CROP_MARK_GAP,
+        y,
+        x + x_sign * (CROP_MARK_GAP + CROP_MARK_LENGTH),
+        y,
     ));
-
-    // Top-right corner
-    ops.push_str(&draw_line(
-        right,
-        top + CROP_MARK_GAP,
-        right,
-        top + CROP_MARK_GAP + CROP_MARK_LENGTH,
-    ));
-    ops.push_str(&draw_line(
-        right + CROP_MARK_GAP,
-        top,
-        right + CROP_MARK_GAP + CROP_MARK_LENGTH,
-        top,
-    ));
-
-    // Bottom-left corner
-    ops.push_str(&draw_line(
-        left,
-        bottom - CROP_MARK_GAP,
-        left,
-        bottom - CROP_MARK_GAP - CROP_MARK_LENGTH,
-    ));
-    ops.push_str(&draw_line(
-        left - CROP_MARK_GAP,
-        bottom,
-        left - CROP_MARK_GAP - CROP_MARK_LENGTH,
-        bottom,
-    ));
-
-    // Bottom-right corner
-    ops.push_str(&draw_line(
-        right,
-        bottom - CROP_MARK_GAP,
-        right,
-        bottom - CROP_MARK_GAP - CROP_MARK_LENGTH,
-    ));
-    ops.push_str(&draw_line(
-        right + CROP_MARK_GAP,
-        bottom,
-        right + CROP_MARK_GAP + CROP_MARK_LENGTH,
-        bottom,
-    ));
-
     ops
 }
 
