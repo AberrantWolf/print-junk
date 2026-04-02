@@ -167,11 +167,22 @@ impl eframe::App for PdfToolsApp {
                     self.impose_state.preview_page_count = page_count;
                     self.progress = None;
 
-                    // Request render of first page (legacy mode, no zoom)
+                    // Initialize a viewer for the preview with zoom enabled
+                    let preview_viewer = ViewerState {
+                        current_doc_id: Some(doc_id),
+                        current_page: 0,
+                        total_pages: page_count,
+                        page_texture: None,
+                        zoom: Some(ZoomState::default()),
+                        show_close_button: false,
+                    };
+                    self.impose_state.preview_viewer = Some(preview_viewer);
+
+                    // First render at 100%; fit-to-window will adjust on next frame
                     let _ = self.command_tx.send(PdfCommand::ViewerRenderPage {
                         doc_id,
                         page_index: 0,
-                        zoom_level: 0.0,
+                        zoom_level: 1.0,
                     });
                 }
                 PdfUpdate::ImposeConfigLoaded { options } => {
@@ -192,32 +203,30 @@ impl eframe::App for PdfToolsApp {
                     self.progress = None;
                 }
                 PdfUpdate::ViewerLoaded { doc_id, page_count } => {
-                    let mut new_viewer_state = ViewerState {
+                    let is_standalone_viewer = matches!(self.mode, Mode::Viewer);
+                    let new_viewer_state = ViewerState {
                         current_doc_id: Some(doc_id),
                         current_page: 0,
                         total_pages: page_count,
                         page_texture: None,
-                        zoom: None,
+                        zoom: Some(ZoomState::default()),
+                        show_close_button: is_standalone_viewer,
                     };
 
                     // Update viewer state based on current mode
-                    // Only the main Viewer mode gets zoom controls
-                    let zoom_level = match self.mode {
+                    match self.mode {
                         Mode::Flashcards => {
                             self.flashcard_state.preview_viewer = Some(new_viewer_state.clone());
-                            0.0 // legacy mode
                         }
                         Mode::Viewer => {
-                            new_viewer_state.zoom = Some(ZoomState::default());
                             self.viewer_state = Some(new_viewer_state.clone());
-                            // First render at 100%; fit-to-window will adjust on next frame
-                            1.0
                         }
                         Mode::Impose => {
                             self.impose_state.preview_viewer = Some(new_viewer_state.clone());
-                            0.0 // legacy mode
                         }
                     };
+                    // First render at 100%; fit-to-window will adjust on next frame
+                    let zoom_level = 1.0;
 
                     log::info!("Loaded PDF with {} pages", page_count);
                     self.progress = None;
@@ -262,27 +271,28 @@ impl eframe::App for PdfToolsApp {
                         }
                     }
 
-                    if let Some(state) = &mut self.flashcard_state.preview_viewer {
-                        if let Some(texture) = &mut state.page_texture {
-                            texture.set(color_image.clone(), egui::TextureOptions::default());
-                        } else {
-                            state.page_texture = Some(ctx.load_texture(
-                                "flashcard_preview",
-                                color_image.clone(),
-                                egui::TextureOptions::default(),
-                            ));
-                        }
-                    }
-
-                    if let Some(state) = &mut self.impose_state.preview_viewer {
-                        if let Some(texture) = &mut state.page_texture {
-                            texture.set(color_image.clone(), egui::TextureOptions::default());
-                        } else {
-                            state.page_texture = Some(ctx.load_texture(
-                                "impose_preview",
-                                color_image,
-                                egui::TextureOptions::default(),
-                            ));
+                    for (name, preview) in [
+                        ("flashcard_preview", &mut self.flashcard_state.preview_viewer),
+                        ("impose_preview", &mut self.impose_state.preview_viewer),
+                    ] {
+                        if let Some(state) = preview {
+                            if let Some(texture) = &mut state.page_texture {
+                                texture.set(color_image.clone(), egui::TextureOptions::default());
+                            } else {
+                                state.page_texture = Some(ctx.load_texture(
+                                    name,
+                                    color_image.clone(),
+                                    egui::TextureOptions::default(),
+                                ));
+                            }
+                            if let Some(zoom) = &mut state.zoom {
+                                if page_width_pts > 0.0 && page_height_pts > 0.0 {
+                                    zoom.page_native_size =
+                                        Some((page_width_pts, page_height_pts));
+                                }
+                                zoom.rendered_zoom =
+                                    Some(crate::viewer::quantize_zoom(zoom_level));
+                            }
                         }
                     }
 

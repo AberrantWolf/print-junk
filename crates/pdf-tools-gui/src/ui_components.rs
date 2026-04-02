@@ -27,6 +27,7 @@ where
         self
     }
 
+    #[allow(dead_code)]
     pub fn suffix(mut self, suffix: impl Into<String>) -> Self {
         self.suffix = Some(suffix.into());
         self
@@ -74,11 +75,13 @@ where
         self
     }
 
+    #[allow(dead_code)]
     pub fn suffix(mut self, suffix: impl Into<String>) -> Self {
         self.suffix = Some(suffix.into());
         self
     }
 
+    #[allow(dead_code)]
     pub fn speed(mut self, speed: f32) -> Self {
         self.speed = Some(speed);
         self
@@ -103,7 +106,7 @@ where
     }
 }
 
-/// Helper for creating labeled horizontal drag values
+#[allow(dead_code)]
 pub fn labeled_drag<T>(ui: &mut egui::Ui, label: &str, value: &mut T) -> bool
 where
     T: egui::emath::Numeric,
@@ -115,7 +118,7 @@ where
     .inner
 }
 
-/// Helper for creating labeled horizontal drag values with suffix
+#[allow(dead_code)]
 pub fn labeled_drag_with_suffix<T>(
     ui: &mut egui::Ui,
     label: &str,

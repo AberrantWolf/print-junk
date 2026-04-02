@@ -79,6 +79,8 @@ pub(crate) fn impose_signature_binding(
             output_height_pt,
             pages_tree_id,
             options,
+            sig_num,
+            num_signatures,
         )?;
         page_refs.push(Object::Reference(front_page_id));
 
@@ -98,6 +100,8 @@ pub(crate) fn impose_signature_binding(
             output_height_pt,
             pages_tree_id,
             options,
+            sig_num,
+            num_signatures,
         )?;
         page_refs.push(Object::Reference(back_page_id));
     }

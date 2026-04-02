@@ -421,12 +421,12 @@ fn test_octavo_page_order() {
     // Bottom-right (was bottom-left on A): [verso=14, recto=3]
     assert_eq!(assignment.back[1].verso_page, Some(13));
     assert_eq!(assignment.back[1].recto_page, Some(2));
-    // Top-left (was top-right on A, rotated): [verso=6, recto=11]
-    assert_eq!(assignment.back[2].verso_page, Some(5));
-    assert_eq!(assignment.back[2].recto_page, Some(10));
-    // Top-right (was top-left on A, rotated): [verso=10, recto=7]
-    assert_eq!(assignment.back[3].verso_page, Some(9));
-    assert_eq!(assignment.back[3].recto_page, Some(6));
+    // Top-left (was top-right on A, rotated): [verso=7, recto=10]
+    assert_eq!(assignment.back[2].verso_page, Some(6));
+    assert_eq!(assignment.back[2].recto_page, Some(9));
+    // Top-right (was top-left on A, rotated): [verso=11, recto=6]
+    assert_eq!(assignment.back[3].verso_page, Some(10));
+    assert_eq!(assignment.back[3].recto_page, Some(5));
 }
 
 #[test]

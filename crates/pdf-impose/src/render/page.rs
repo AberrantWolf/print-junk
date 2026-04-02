@@ -106,13 +106,10 @@ pub fn render_imposed_page(
 
     // Generate printer's marks
     if marks.any_enabled() {
-        // For the standalone API, we don't have cut position info.
-        // Horizontal cuts default to between all rows for multi-row layouts.
-        let horizontal_cuts: Vec<usize> = if grid_rows > 1 {
-            (0..grid_rows - 1).collect()
-        } else {
-            vec![]
-        };
+        // For the standalone API, we don't have binding type context.
+        // Default to Cut boundaries for multi-row/col layouts.
+        let horizontal_boundaries: Vec<usize> = (0..grid_rows.saturating_sub(1)).collect();
+        let vertical_boundaries: Vec<usize> = (0..grid_cols.saturating_sub(1)).collect();
 
         let marks_config = MarksConfig {
             cols: grid_cols,
@@ -124,10 +121,11 @@ pub fn render_imposed_page(
             leaf_right: leaf_bounds.right(),
             leaf_top: leaf_bounds.top(),
             content_bounds,
-            vertical_cuts: vec![], // No vertical cuts in default API
-            horizontal_cuts,
+            vertical_boundaries,
+            horizontal_boundaries,
+            boundary_type: crate::types::BoundaryType::Cut,
         };
-        content_ops.push(generate_marks(marks, &marks_config));
+        content_ops.push(generate_marks(marks, &marks_config, None));
     }
 
     // Add page numbers

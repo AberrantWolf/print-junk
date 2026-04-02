@@ -53,14 +53,11 @@ pub fn calculate_spread_content(
     // Calculate horizontal margins for each page
     // Verso (left page): fore-edge on left, spine on right
     // Recto (right page): spine on left, fore-edge on right
-    let verso_left = if cut_edges.left { cut_pt } else { fore_edge_pt };
+    // Cut margin is additive (like vertical margins) so pages stay the same size
+    let verso_left = fore_edge_pt + if cut_edges.left { cut_pt } else { 0.0 };
     let verso_right = spine_pt;
     let recto_left = spine_pt;
-    let recto_right = if cut_edges.right {
-        cut_pt
-    } else {
-        fore_edge_pt
-    };
+    let recto_right = fore_edge_pt + if cut_edges.right { cut_pt } else { 0.0 };
 
     // Calculate vertical margins (add cut margin where there are cuts)
     let top_margin = top_pt + if cut_edges.top { cut_pt } else { 0.0 };
