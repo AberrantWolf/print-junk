@@ -52,7 +52,7 @@ impl Default for ImpositionOptions {
             binding_type: BindingType::Signature,
             page_arrangement: PageArrangement::Quarto,
             output_paper_size: PaperSize::Letter,
-            output_orientation: Orientation::Portrait,
+            output_orientation: Orientation::Landscape,
             output_format: OutputFormat::DoubleSided,
             scaling_mode: ScalingMode::Fit,
             margins: Margins::default(),
