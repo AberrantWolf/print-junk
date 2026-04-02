@@ -42,11 +42,15 @@ pub enum PdfCommand {
     ViewerRenderPage {
         doc_id: DocumentId,
         page_index: usize,
+        /// Zoom level as a fraction (1.0 = 100%). Use 0.0 for legacy fixed-size rendering.
+        zoom_level: f32,
     },
     /// Prefetch pages for faster navigation (lower priority than direct renders)
     ViewerPrefetchPages {
         doc_id: DocumentId,
         page_indices: Vec<usize>,
+        /// Zoom level as a fraction (1.0 = 100%). Use 0.0 for legacy fixed-size rendering.
+        zoom_level: f32,
     },
     ViewerClose {
         doc_id: DocumentId,
@@ -98,6 +102,12 @@ pub enum PdfUpdate {
         width: usize,
         height: usize,
         rgba_data: Vec<u8>,
+        /// The zoom level this was rendered at (fraction, 1.0 = 100%)
+        zoom_level: f32,
+        /// Native page width in PDF points
+        page_width_pts: f32,
+        /// Native page height in PDF points
+        page_height_pts: f32,
     },
     ViewerClosed {
         doc_id: DocumentId,

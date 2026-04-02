@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 #[cfg(feature = "pdf-viewer")]
-use crate::viewer::{CachedPage, ViewerState, init_pdfium};
+use crate::viewer::{CachedPage, ViewerState, init_pdfium, make_render_config, quantize_zoom};
 
 #[cfg(feature = "pdf-viewer")]
 use pdfium_render::prelude::*;
@@ -50,10 +50,12 @@ pub async fn handle_load(
 pub async fn handle_render_page(
     doc_id: DocumentId,
     page_index: usize,
+    zoom_level: f32,
     state: &mut ViewerState,
     update_tx: &mpsc::UnboundedSender<PdfUpdate>,
 ) {
-    let cache_key = (doc_id, page_index);
+    let quantized = quantize_zoom(zoom_level);
+    let cache_key = (doc_id, page_index, quantized);
 
     // Check cache first
     if let Some(cached) = state.get_from_cache(&cache_key) {
@@ -63,6 +65,11 @@ pub async fn handle_render_page(
             width: cached.width,
             height: cached.height,
             rgba_data: cached.rgba_data.clone(),
+            zoom_level,
+            // We don't store native size in cache, so re-render path will provide it.
+            // For cache hits, the UI already has page_native_size from a prior render.
+            page_width_pts: 0.0,
+            page_height_pts: 0.0,
         });
     } else if let Some(pdf_path) = state.get_document(&doc_id).cloned() {
         // Not in cache, need to render
@@ -71,20 +78,21 @@ pub async fn handle_render_page(
             let document = pdfium.load_pdf_from_file(&pdf_path, None)?;
             let page = document.pages().get(page_index as u16)?;
 
-            let config = PdfRenderConfig::new()
-                .set_target_width(600)
-                .set_maximum_height(800);
+            let page_width_pts = page.width().value;
+            let page_height_pts = page.height().value;
+
+            let config = make_render_config(page_width_pts, page_height_pts, zoom_level);
 
             let bitmap = page.render_with_config(&config)?;
             let rgba_data = bitmap.as_rgba_bytes().to_vec();
             let width = bitmap.width() as usize;
             let height = bitmap.height() as usize;
 
-            Ok::<_, PdfiumError>((rgba_data, width, height))
+            Ok::<_, PdfiumError>((rgba_data, width, height, page_width_pts, page_height_pts))
         })
         .await
         {
-            Ok(Ok((rgba_data, width, height))) => {
+            Ok(Ok((rgba_data, width, height, page_width_pts, page_height_pts))) => {
                 // Add to cache
                 state.add_to_cache(
                     cache_key,
@@ -101,6 +109,9 @@ pub async fn handle_render_page(
                     width,
                     height,
                     rgba_data,
+                    zoom_level,
+                    page_width_pts,
+                    page_height_pts,
                 });
             }
             Ok(Err(e)) => {
@@ -127,10 +138,13 @@ pub async fn handle_render_page(
 pub async fn handle_prefetch_pages(
     doc_id: DocumentId,
     page_indices: Vec<usize>,
+    zoom_level: f32,
     state: &mut ViewerState,
 ) {
+    let quantized = quantize_zoom(zoom_level);
+
     for page_index in page_indices {
-        let cache_key = (doc_id, page_index);
+        let cache_key = (doc_id, page_index, quantized);
 
         // Skip if already cached
         if state.get_from_cache(&cache_key).is_some() {
@@ -144,9 +158,10 @@ pub async fn handle_prefetch_pages(
                 let document = pdfium.load_pdf_from_file(&pdf_path, None)?;
                 let page = document.pages().get(page_index as u16)?;
 
-                let config = PdfRenderConfig::new()
-                    .set_target_width(600)
-                    .set_maximum_height(800);
+                let page_width_pts = page.width().value;
+                let page_height_pts = page.height().value;
+
+                let config = make_render_config(page_width_pts, page_height_pts, zoom_level);
 
                 let bitmap = page.render_with_config(&config)?;
                 let rgba_data = bitmap.as_rgba_bytes().to_vec();
