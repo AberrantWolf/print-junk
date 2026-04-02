@@ -43,10 +43,10 @@ pub type Result<T> = std::result::Result<T, ImposeError>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Orientation {
-    /// Portrait: height > width (default for most paper sizes)
-    #[default]
+    /// Portrait: height > width
     Portrait,
-    /// Landscape: width > height
+    /// Landscape: width > height (default for imposition — pages are arranged side by side)
+    #[default]
     Landscape,
 }
 
