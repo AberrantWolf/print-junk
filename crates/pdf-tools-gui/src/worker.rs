@@ -111,17 +111,20 @@ async fn process_command(
         PdfCommand::ViewerRenderPage {
             mut doc_id,
             mut page_index,
+            mut zoom_level,
         } => {
             // Deduplicate render commands - keep the most recent one
             while let Ok(next_cmd) = command_rx.try_recv() {
                 if let PdfCommand::ViewerRenderPage {
                     doc_id: new_doc_id,
                     page_index: new_page_index,
+                    zoom_level: new_zoom_level,
                 } = next_cmd
                 {
                     log::debug!("Discarding queued page render, using newer request");
                     doc_id = new_doc_id;
                     page_index = new_page_index;
+                    zoom_level = new_zoom_level;
                 } else if let PdfCommand::ViewerPrefetchPages { .. } = next_cmd {
                     // Discard prefetch commands when we have a direct render pending
                     log::debug!("Discarding prefetch during page navigation");
@@ -139,7 +142,7 @@ async fn process_command(
             }
 
             if let Some(state) = viewer_state {
-                handlers::viewer::handle_render_page(doc_id, page_index, state, update_tx).await;
+                handlers::viewer::handle_render_page(doc_id, page_index, zoom_level, state, update_tx).await;
             } else {
                 let _ = update_tx.send(PdfUpdate::Error {
                     message: "PDF viewer not initialized".to_string(),
@@ -150,9 +153,10 @@ async fn process_command(
         PdfCommand::ViewerPrefetchPages {
             doc_id,
             page_indices,
+            zoom_level,
         } => {
             if let Some(state) = viewer_state {
-                handlers::viewer::handle_prefetch_pages(doc_id, page_indices, state).await;
+                handlers::viewer::handle_prefetch_pages(doc_id, page_indices, zoom_level, state).await;
             }
         }
         #[cfg(feature = "pdf-viewer")]

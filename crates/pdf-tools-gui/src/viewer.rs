@@ -36,16 +36,66 @@ pub struct CachedPage {
     pub height: usize,
 }
 
+/// Cache key: (document, page index, quantized zoom percentage)
+#[cfg(feature = "pdf-viewer")]
+type CacheKey = (DocumentId, usize, u32);
+
 /// Maximum number of pages to cache
 #[cfg(feature = "pdf-viewer")]
 const MAX_CACHED_PAGES: usize = 50;
+
+/// Maximum render dimension in pixels (to prevent OOM at extreme zoom)
+#[cfg(feature = "pdf-viewer")]
+const MAX_RENDER_DIMENSION: i32 = 4096;
+
+/// Legacy render dimensions used when zoom_level is 0.0 (impose/flashcard previews)
+#[cfg(feature = "pdf-viewer")]
+const LEGACY_TARGET_WIDTH: i32 = 600;
+#[cfg(feature = "pdf-viewer")]
+const LEGACY_MAX_HEIGHT: i32 = 800;
+
+/// Quantize a zoom fraction to a discrete percentage for cache keys.
+/// Steps: every 25% from 25-100, every 50% from 100-400.
+pub fn quantize_zoom(zoom: f32) -> u32 {
+    let percent = (zoom * 100.0).round() as i32;
+    let clamped = percent.clamp(25, 400);
+    if clamped <= 100 {
+        // Round to nearest 25
+        ((clamped + 12) / 25 * 25) as u32
+    } else {
+        // Round to nearest 50
+        ((clamped + 25) / 50 * 50) as u32
+    }
+}
+
+/// Compute render dimensions for a given page size and zoom level.
+/// Returns (target_width, max_height) suitable for PdfRenderConfig.
+/// If zoom is 0.0, returns legacy fixed dimensions (600x800).
+#[cfg(feature = "pdf-viewer")]
+pub fn render_dimensions(page_width_pts: f32, page_height_pts: f32, zoom: f32) -> (i32, i32) {
+    if zoom <= 0.0 {
+        return (LEGACY_TARGET_WIDTH, LEGACY_MAX_HEIGHT);
+    }
+    let w = (page_width_pts * zoom).round() as i32;
+    let h = (page_height_pts * zoom).round() as i32;
+    (w.min(MAX_RENDER_DIMENSION), h.min(MAX_RENDER_DIMENSION))
+}
+
+/// Build a PdfRenderConfig for the given dimensions.
+#[cfg(feature = "pdf-viewer")]
+pub fn make_render_config(page_width_pts: f32, page_height_pts: f32, zoom: f32) -> PdfRenderConfig {
+    let (w, h) = render_dimensions(page_width_pts, page_height_pts, zoom);
+    PdfRenderConfig::new()
+        .set_target_width(w)
+        .set_maximum_height(h)
+}
 
 /// State for PDF viewer functionality
 #[cfg(feature = "pdf-viewer")]
 pub struct ViewerState {
     documents: HashMap<DocumentId, PathBuf>,
-    page_cache: HashMap<(DocumentId, usize), CachedPage>,
-    cache_order: VecDeque<(DocumentId, usize)>,
+    page_cache: HashMap<CacheKey, CachedPage>,
+    cache_order: VecDeque<CacheKey>,
     next_doc_id: AtomicU64,
 }
 
@@ -72,7 +122,7 @@ impl ViewerState {
         self.documents.get(doc_id)
     }
 
-    pub fn add_to_cache(&mut self, key: (DocumentId, usize), page: CachedPage) {
+    pub fn add_to_cache(&mut self, key: CacheKey, page: CachedPage) {
         // Remove if already exists (update LRU)
         if self.page_cache.contains_key(&key) {
             self.cache_order.retain(|k| k != &key);
@@ -90,7 +140,7 @@ impl ViewerState {
         self.cache_order.push_back(key);
     }
 
-    pub fn get_from_cache(&mut self, key: &(DocumentId, usize)) -> Option<&CachedPage> {
+    pub fn get_from_cache(&mut self, key: &CacheKey) -> Option<&CachedPage> {
         if self.page_cache.contains_key(key) {
             // Update LRU order
             self.cache_order.retain(|k| k != key);
@@ -104,7 +154,7 @@ impl ViewerState {
     pub fn remove_document(&mut self, doc_id: DocumentId) {
         self.documents.remove(&doc_id);
         // Remove all cached pages for this document
-        self.cache_order.retain(|(id, _)| *id != doc_id);
-        self.page_cache.retain(|(id, _), _| *id != doc_id);
+        self.cache_order.retain(|(id, _, _)| *id != doc_id);
+        self.page_cache.retain(|(id, _, _), _| *id != doc_id);
     }
 }
