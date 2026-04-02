@@ -14,6 +14,20 @@
 
 Collection of PDF processing and generation tools - features wanted but not found in usable FOSS form.
 
+## Terminology
+
+- Sheet: a physical sheet of paper.
+- Page: one side of printed content
+- Printer Page: one side of a sheet of paper as printed by a printer
+- Book Page: one side of a leaf (see below). There are multiple book pages on a single printer page in signature binding.
+- Signature: A collated set of pages grouped together.
+- Book: a collection of signatures bound together.
+- Leaf: the front and back sides of a page together.
+- Recto: the front page of a leaf.
+- Verso: the back page of a leaf.
+- Spine: the back of a book; also the line along which a signature is folded.
+- Spread: the left and right (verso and recto) pages aligned with the spine in the middle.
+
 ## Crate Structure
 
 Located in `crates/`:
@@ -95,3 +109,5 @@ pdft impose -i input.pdf -o output.pdf \
 5. **Responsive UIs** - use async + channels, never block
 6. **Never use dead/unmaintained crates** - verify crates are actively maintained
 7. **Always favor the latest version of a crate**
+8. **There is no stable API** - always favor better design choices over preserving existing API
+9. **If a new system is implemented, use it** - Always replace old systems with new ones. API stability is how you get bad code in this project.

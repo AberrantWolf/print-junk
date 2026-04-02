@@ -342,105 +342,109 @@ async fn test_full_workflow() {
 }
 
 // Test correct page ordering for traditional bookbinding formats
-// These tests verify the actual page sequence matches traditional bookbinding standards
-// Note: Page ordering tests are now in the layout::signature module.
-// The tests below verify the high-level API behavior.
+// These tests verify spread-based page assignments match traditional bookbinding standards
 
 #[test]
 fn test_folio_page_order() {
-    // Folio: 1 fold = 4 pages per signature
+    // Folio: 1 fold = 4 pages per signature = 1 spread per side
     use pdf_impose::PageArrangement;
-    use pdf_impose::layout::map_pages_to_slots;
+    use pdf_impose::layout::assign_pages_to_spreads;
 
-    let order = map_pages_to_slots(PageArrangement::Folio, 0, 4);
+    let assignment = assign_pages_to_spreads(PageArrangement::Folio, 0, 4);
 
-    // Side A: [4, 1], Side B: [2, 3]
-    assert_eq!(order.len(), 4);
-    assert_eq!(order[0], Some(3)); // Side A left: page 4
-    assert_eq!(order[1], Some(0)); // Side A right: page 1
-    assert_eq!(order[2], Some(1)); // Side B left: page 2
-    assert_eq!(order[3], Some(2)); // Side B right: page 3
+    // Front side: 1 spread [verso=4, recto=1]
+    assert_eq!(assignment.front.len(), 1);
+    assert_eq!(assignment.front[0].verso_page, Some(3)); // page 4 (0-indexed)
+    assert_eq!(assignment.front[0].recto_page, Some(0)); // page 1 (0-indexed)
+
+    // Back side: 1 spread [verso=2, recto=3]
+    assert_eq!(assignment.back.len(), 1);
+    assert_eq!(assignment.back[0].verso_page, Some(1)); // page 2 (0-indexed)
+    assert_eq!(assignment.back[0].recto_page, Some(2)); // page 3 (0-indexed)
 }
 
 #[test]
 fn test_quarto_page_order() {
-    // Quarto: 2 folds = 8 pages per signature
+    // Quarto: 2 folds = 8 pages per signature = 2 spreads per side
     use pdf_impose::PageArrangement;
-    use pdf_impose::layout::map_pages_to_slots;
+    use pdf_impose::layout::assign_pages_to_spreads;
 
-    let order = map_pages_to_slots(PageArrangement::Quarto, 0, 8);
+    let assignment = assign_pages_to_spreads(PageArrangement::Quarto, 0, 8);
 
-    assert_eq!(order.len(), 8);
+    // Front side: 2 spreads [bottom, top]
+    assert_eq!(assignment.front.len(), 2);
+    // Bottom spread: [verso=8, recto=1]
+    assert_eq!(assignment.front[0].verso_page, Some(7)); // page 8
+    assert_eq!(assignment.front[0].recto_page, Some(0)); // page 1
+    // Top spread (rotated): [verso=5, recto=4]
+    assert_eq!(assignment.front[1].verso_page, Some(4)); // page 5
+    assert_eq!(assignment.front[1].recto_page, Some(3)); // page 4
 
-    // Side A: [5, 4, 8, 1] (top-left, top-right, bottom-left, bottom-right)
-    assert_eq!(order[0], Some(4)); // page 5 (0-indexed = 4)
-    assert_eq!(order[1], Some(3)); // page 4 (0-indexed = 3)
-    assert_eq!(order[2], Some(7)); // page 8 (0-indexed = 7)
-    assert_eq!(order[3], Some(0)); // page 1 (0-indexed = 0)
-
-    // Side B: [3, 6, 2, 7] - mirrored for duplex
-    assert_eq!(order[4], Some(2)); // page 3 (0-indexed = 2)
-    assert_eq!(order[5], Some(5)); // page 6 (0-indexed = 5)
-    assert_eq!(order[6], Some(1)); // page 2 (0-indexed = 1)
-    assert_eq!(order[7], Some(6)); // page 7 (0-indexed = 6)
+    // Back side: 2 spreads [bottom, top]
+    assert_eq!(assignment.back.len(), 2);
+    // Bottom spread: [verso=2, recto=7]
+    assert_eq!(assignment.back[0].verso_page, Some(1)); // page 2
+    assert_eq!(assignment.back[0].recto_page, Some(6)); // page 7
+    // Top spread (rotated): [verso=3, recto=6]
+    assert_eq!(assignment.back[1].verso_page, Some(2)); // page 3
+    assert_eq!(assignment.back[1].recto_page, Some(5)); // page 6
 }
 
 #[test]
 fn test_octavo_page_order() {
-    // Octavo: 3 folds = 16 pages per signature
+    // Octavo: 3 folds = 16 pages per signature = 4 spreads per side
     use pdf_impose::PageArrangement;
-    use pdf_impose::layout::map_pages_to_slots;
+    use pdf_impose::layout::assign_pages_to_spreads;
 
-    let order = map_pages_to_slots(PageArrangement::Octavo, 0, 16);
+    let assignment = assign_pages_to_spreads(PageArrangement::Octavo, 0, 16);
 
-    assert_eq!(order.len(), 16);
+    // Front side: 4 spreads [bottom-left, bottom-right, top-left, top-right]
+    assert_eq!(assignment.front.len(), 4);
+    // Bottom-left: [verso=4, recto=13]
+    assert_eq!(assignment.front[0].verso_page, Some(3));
+    assert_eq!(assignment.front[0].recto_page, Some(12));
+    // Bottom-right: [verso=16, recto=1]
+    assert_eq!(assignment.front[1].verso_page, Some(15));
+    assert_eq!(assignment.front[1].recto_page, Some(0));
+    // Top-left (rotated): [verso=5, recto=12]
+    assert_eq!(assignment.front[2].verso_page, Some(4));
+    assert_eq!(assignment.front[2].recto_page, Some(11));
+    // Top-right (rotated): [verso=9, recto=8]
+    assert_eq!(assignment.front[3].verso_page, Some(8));
+    assert_eq!(assignment.front[3].recto_page, Some(7));
 
-    // Expected sequence (0-indexed):
-    // Side A top:    [5, 12, 9, 8]  -> [4, 11, 8, 7]
-    // Side A bottom: [4, 13, 16, 1] -> [3, 12, 15, 0]
-    // Side B top:    [7, 10, 11, 6] -> [6, 9, 10, 5] (mirrored for duplex)
-    // Side B bottom: [2, 15, 14, 3] -> [1, 14, 13, 2] (mirrored for duplex)
-    let expected = vec![
-        4, 11, 8, 7, // Side A top row
-        3, 12, 15, 0, // Side A bottom row
-        5, 10, 9, 6, // Side B top row (mirrored)
-        2, 13, 14, 1, // Side B bottom row (mirrored)
-    ];
-
-    for (i, &expected_page) in expected.iter().enumerate() {
-        assert_eq!(
-            order[i],
-            Some(expected_page),
-            "Mismatch at position {}: expected page {}, got {:?}",
-            i,
-            expected_page + 1,
-            order[i].map(|p| p + 1)
-        );
-    }
+    // Back side: 4 spreads (mirrored due to sheet flip)
+    assert_eq!(assignment.back.len(), 4);
+    // Bottom-left (was bottom-right on A): [verso=2, recto=15]
+    assert_eq!(assignment.back[0].verso_page, Some(1));
+    assert_eq!(assignment.back[0].recto_page, Some(14));
+    // Bottom-right (was bottom-left on A): [verso=14, recto=3]
+    assert_eq!(assignment.back[1].verso_page, Some(13));
+    assert_eq!(assignment.back[1].recto_page, Some(2));
+    // Top-left (was top-right on A, rotated): [verso=6, recto=11]
+    assert_eq!(assignment.back[2].verso_page, Some(5));
+    assert_eq!(assignment.back[2].recto_page, Some(10));
+    // Top-right (was top-left on A, rotated): [verso=10, recto=7]
+    assert_eq!(assignment.back[3].verso_page, Some(9));
+    assert_eq!(assignment.back[3].recto_page, Some(6));
 }
 
 #[test]
 fn test_multiple_signatures() {
     // Test with 2 quarto signatures (16 pages total)
     use pdf_impose::PageArrangement;
-    use pdf_impose::layout::map_pages_to_slots;
+    use pdf_impose::layout::assign_pages_to_spreads;
 
-    // First signature
-    let order1 = map_pages_to_slots(PageArrangement::Quarto, 0, 16);
-    // Second signature
-    let order2 = map_pages_to_slots(PageArrangement::Quarto, 8, 16);
+    // First signature (pages 1-8)
+    let sig1 = assign_pages_to_spreads(PageArrangement::Quarto, 0, 16);
+    // Second signature (pages 9-16)
+    let sig2 = assign_pages_to_spreads(PageArrangement::Quarto, 8, 16);
 
-    // First signature: pages 1-8 (indices 0-7)
-    // Side A: [5, 4, 8, 1] -> [4, 3, 7, 0]
-    assert_eq!(order1[0], Some(4)); // page 5
-    assert_eq!(order1[1], Some(3)); // page 4
-    assert_eq!(order1[2], Some(7)); // page 8
-    assert_eq!(order1[3], Some(0)); // page 1
+    // First signature front, bottom spread: [verso=8, recto=1]
+    assert_eq!(sig1.front[0].verso_page, Some(7)); // page 8
+    assert_eq!(sig1.front[0].recto_page, Some(0)); // page 1
 
-    // Second signature: pages 9-16 (indices 8-15)
-    // Side A: [13, 12, 16, 9] -> [12, 11, 15, 8]
-    assert_eq!(order2[0], Some(12)); // page 13
-    assert_eq!(order2[1], Some(11)); // page 12
-    assert_eq!(order2[2], Some(15)); // page 16
-    assert_eq!(order2[3], Some(8)); // page 9
+    // Second signature front, bottom spread: [verso=16, recto=9]
+    assert_eq!(sig2.front[0].verso_page, Some(15)); // page 16
+    assert_eq!(sig2.front[0].recto_page, Some(8)); // page 9
 }

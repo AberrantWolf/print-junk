@@ -1,17 +1,22 @@
 //! Simple 2-up binding imposition (perfect binding, side stitch, spiral)
+//!
+//! For non-signature bindings, pages are simply placed 2-up (one spread per sheet).
+//! This uses the folio spread layout.
 
-use super::sheet::{calculate_sheet_placements, render_sheet};
-use super::sheet_dimensions_pt;
-use crate::constants::mm_to_pt;
-use crate::layout::{PageSide, Rect, SheetLayout, SheetSide, SignatureSlot, create_grid_layout};
+use super::sheet::render_sheet_spreads;
+use super::{calculate_leaf_bounds, sheet_dimensions_pt};
+use super::signature::finalize_document;
+use crate::layout::{
+    SheetSide, Spread, SpreadCutEdges, SpreadSheetLayout, calculate_spread_positions,
+};
 use crate::options::ImpositionOptions;
 use crate::render::get_page_dimensions;
 use crate::types::*;
-use lopdf::{Dictionary, Document, Object, ObjectId};
+use lopdf::{Document, Object, ObjectId};
 
 /// Impose using simple 2-up binding (perfect binding, side stitch, spiral)
 ///
-/// Each output page has 2 source pages side by side.
+/// Each output page has 2 source pages side by side (one spread).
 pub(crate) fn impose_simple_binding(
     source: &Document,
     page_ids: &[ObjectId],
@@ -31,24 +36,22 @@ pub(crate) fn impose_simple_binding(
     let (output_width_pt, output_height_pt) = sheet_dimensions_pt(options);
     let leaf_bounds = calculate_leaf_bounds(options, output_width_pt, output_height_pt);
 
-    // Simple 2-up grid (use folio layout)
-    let grid = create_grid_layout(
-        PageArrangement::Folio,
-        leaf_bounds.width,
-        leaf_bounds.height,
-        output_width_pt,
-        output_height_pt,
-    );
+    // Simple 2-up uses folio layout (1 spread per sheet side)
+    let spread_positions =
+        calculate_spread_positions(PageArrangement::Folio, leaf_bounds, &options.margins.leaf);
+
+    // Folio has no cuts
+    let cut_edges = vec![SpreadCutEdges::none()];
 
     // Build output document
     let mut output = Document::with_version("1.7");
     let pages_tree_id = output.new_object_id();
     let mut page_refs = Vec::new();
 
-    // Pad to even number
+    // Pad to even number of pages
     let padded_count = (total_pages + 1) / 2 * 2;
 
-    // Process pages in pairs
+    // Process pages in pairs (one spread per output page)
     for chunk_start in (0..padded_count).step_by(2) {
         let left_page = if chunk_start < total_pages {
             Some(chunk_start)
@@ -61,38 +64,25 @@ pub(crate) fn impose_simple_binding(
             None
         };
 
-        // Create simple slots for 2-up layout
-        let left_slot = SignatureSlot::new(0, SheetSide::Front, 0, 0, false, PageSide::Verso);
-        let right_slot = SignatureSlot::new(1, SheetSide::Front, 0, 1, false, PageSide::Recto);
+        // Create spread with page assignments
+        let spread = Spread::new(left_page, right_page);
 
-        let slots = vec![&left_slot, &right_slot];
-        let page_mapping = vec![left_page, right_page];
+        // Clone the spread position and assign the spread
+        let mut spread_pos = spread_positions[0].clone();
+        spread_pos.spread = spread;
 
-        let placements = calculate_sheet_placements(
-            &grid,
-            &slots,
-            &page_mapping,
-            &source_dimensions,
-            &options.margins.leaf,
-            options.scaling_mode,
-            (leaf_bounds.x, leaf_bounds.y),
-        );
+        let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
 
-        let layout = SheetLayout {
-            side: SheetSide::Front,
-            placements,
-            leaf_bounds,
-        };
-
-        let page_id = render_sheet(
+        let page_id = render_sheet_spreads(
             &mut output,
             source,
             page_ids,
             &layout,
+            &cut_edges,
+            &source_dimensions,
             output_width_pt,
             output_height_pt,
             pages_tree_id,
-            &grid,
             options,
         )?;
         page_refs.push(Object::Reference(page_id));
@@ -103,33 +93,3 @@ pub(crate) fn impose_simple_binding(
     Ok(output)
 }
 
-/// Calculate the leaf area bounds (inside sheet margins)
-fn calculate_leaf_bounds(options: &ImpositionOptions, width_pt: f32, height_pt: f32) -> Rect {
-    let margins = &options.margins.sheet;
-    Rect::new(
-        mm_to_pt(margins.left_mm),
-        mm_to_pt(margins.bottom_mm),
-        width_pt - mm_to_pt(margins.left_mm) - mm_to_pt(margins.right_mm),
-        height_pt - mm_to_pt(margins.top_mm) - mm_to_pt(margins.bottom_mm),
-    )
-}
-
-/// Create pages tree and catalog, finalize document structure
-fn finalize_document(output: &mut Document, pages_tree_id: ObjectId, page_refs: Vec<Object>) {
-    let count = page_refs.len() as i64;
-    let pages_dict = Dictionary::from_iter(vec![
-        ("Type", Object::Name(b"Pages".to_vec())),
-        ("Kids", Object::Array(page_refs)),
-        ("Count", Object::Integer(count)),
-    ]);
-    output
-        .objects
-        .insert(pages_tree_id, Object::Dictionary(pages_dict));
-
-    let catalog_id = output.add_object(Dictionary::from_iter(vec![
-        ("Type", Object::Name(b"Catalog".to_vec())),
-        ("Pages", Object::Reference(pages_tree_id)),
-    ]));
-
-    output.trailer.set("Root", catalog_id);
-}

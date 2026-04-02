@@ -1,72 +1,31 @@
-//! Sheet rendering for imposition
+//! Sheet rendering for imposition using spread-based layout
 
-use crate::constants::{
-    DEFAULT_PAGE_DIMENSIONS, HELVETICA_CHAR_WIDTH_RATIO, PAGE_NUMBER_FONT_SIZE, PAGE_NUMBER_OFFSET,
-};
 use crate::layout::{
-    GridLayout, PagePlacement, SheetLayout, SignatureSlot, calculate_content_area, cell_bounds,
-    place_page,
+    ArrangementConfig, PagePlacement, SpreadCutEdges, SpreadSheetLayout,
+    calculate_spread_placements,
 };
 use crate::marks::{ContentBounds, MarksConfig, generate_marks};
 use crate::options::ImpositionOptions;
-use crate::render::create_page_xobject;
+use crate::render::{create_page_xobject, render_page_numbers};
 use crate::types::*;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::HashMap;
 
 // =============================================================================
-// Placement Calculation
+// Spread-Based Sheet Rendering
 // =============================================================================
 
-/// Calculate page placements for one side of a sheet
-pub(crate) fn calculate_sheet_placements(
-    grid: &GridLayout,
-    slots: &[&SignatureSlot],
-    page_mapping: &[Option<usize>],
-    source_dimensions: &[(f32, f32)],
-    leaf_margins: &LeafMargins,
-    scaling_mode: ScalingMode,
-    leaf_origin: (f32, f32),
-) -> Vec<PagePlacement> {
-    slots
-        .iter()
-        .zip(page_mapping.iter())
-        .map(|(slot, &source_page)| {
-            let cell = cell_bounds(grid, slot.grid_pos, leaf_origin);
-            let content_area = calculate_content_area(&cell, leaf_margins, slot, grid);
-
-            let (src_width, src_height) = source_page
-                .and_then(|idx| source_dimensions.get(idx).copied())
-                .unwrap_or(DEFAULT_PAGE_DIMENSIONS);
-
-            let mut placement = place_page(
-                &content_area,
-                src_width,
-                src_height,
-                scaling_mode,
-                slot,
-                grid,
-            );
-            placement.source_page = source_page;
-            placement
-        })
-        .collect()
-}
-
-// =============================================================================
-// Sheet Rendering
-// =============================================================================
-
-/// Render one side of a sheet to the output document
-pub(crate) fn render_sheet(
+/// Render one side of a sheet using spread-based layout
+pub(crate) fn render_sheet_spreads(
     output: &mut Document,
     source: &Document,
     source_page_ids: &[ObjectId],
-    layout: &SheetLayout,
+    layout: &SpreadSheetLayout,
+    cut_edges: &[SpreadCutEdges],
+    source_dimensions: &[(f32, f32)],
     sheet_width_pt: f32,
     sheet_height_pt: f32,
     parent_pages_id: ObjectId,
-    grid: &GridLayout,
     options: &ImpositionOptions,
 ) -> Result<ObjectId> {
     let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);
@@ -75,10 +34,30 @@ pub(crate) fn render_sheet(
     let mut xobjects = Dictionary::new();
     let mut fonts = Dictionary::new();
     let mut xobject_cache: HashMap<ObjectId, ObjectId> = HashMap::new();
-    let mut content_bounds: Vec<ContentBounds> = Vec::new();
+
+    // Calculate page placements from spreads
+    let placements = calculate_spread_placements(
+        &layout.spreads,
+        cut_edges,
+        source_dimensions,
+        &options.margins.leaf,
+        options.scaling_mode,
+        layout.side,
+    );
+
+    // Collect content bounds for trim marks
+    let content_bounds: Vec<ContentBounds> = placements
+        .iter()
+        .map(|p| ContentBounds {
+            x: p.content_rect.x,
+            y: p.content_rect.y,
+            width: p.content_rect.width,
+            height: p.content_rect.height,
+        })
+        .collect();
 
     // Render each page placement
-    for (idx, placement) in layout.placements.iter().enumerate() {
+    for (idx, placement) in placements.iter().enumerate() {
         if let Some(source_idx) = placement.source_page {
             if source_idx < source_page_ids.len() {
                 let source_page_id = source_page_ids[source_idx];
@@ -91,37 +70,52 @@ pub(crate) fn render_sheet(
 
                 // Generate placement command
                 content_ops.push(generate_placement_cmd(&xobject_name, placement));
-
-                // Record bounds for marks
-                content_bounds.push(ContentBounds {
-                    x: placement.content_rect.x,
-                    y: placement.content_rect.y,
-                    width: placement.content_rect.width,
-                    height: placement.content_rect.height,
-                });
             }
         }
     }
 
     // Generate printer's marks
     if options.marks.any_enabled() {
+        let config = ArrangementConfig::for_arrangement(options.page_arrangement);
+
+        // Determine cut positions
+        let horizontal_cuts: Vec<usize> = (0..config.rows.saturating_sub(1)).collect();
+        let vertical_cuts: Vec<usize> = vec![]; // Current arrangements have no vertical cuts
+
+        let cell_width = layout.leaf_bounds.width / config.cols as f32;
+        let cell_height = layout.leaf_bounds.height / config.rows as f32;
+
         let marks_config = MarksConfig {
-            cols: grid.cols,
-            rows: grid.rows,
-            cell_width: grid.cell_width_pt,
-            cell_height: grid.cell_height_pt,
+            cols: config.cols,
+            rows: config.rows,
+            cell_width,
+            cell_height,
             leaf_left: layout.leaf_bounds.x,
             leaf_bottom: layout.leaf_bounds.y,
             leaf_right: layout.leaf_bounds.right(),
             leaf_top: layout.leaf_bounds.top(),
             content_bounds,
+            vertical_cuts,
+            horizontal_cuts,
         };
         content_ops.push(generate_marks(&options.marks, &marks_config));
     }
 
     // Add page numbers
     if options.add_page_numbers {
-        let (font_ops, font_id) = render_page_numbers(output, layout, grid, options);
+        let config = ArrangementConfig::for_arrangement(options.page_arrangement);
+        let cell_width = layout.leaf_bounds.width / config.cols as f32;
+        let cell_height = layout.leaf_bounds.height / config.rows as f32;
+
+        let (font_ops, font_id) = render_page_numbers(
+            output,
+            &placements,
+            options.page_number_start,
+            cell_width,
+            cell_height,
+            &layout.leaf_bounds,
+            config.rows,
+        );
         content_ops.push(font_ops);
         fonts.set("F1", Object::Reference(font_id));
     }
@@ -184,54 +178,3 @@ fn generate_placement_cmd(xobject_name: &str, placement: &PagePlacement) -> Stri
     }
 }
 
-/// Render page numbers and return (content ops, font object id)
-fn render_page_numbers(
-    output: &mut Document,
-    layout: &SheetLayout,
-    grid: &GridLayout,
-    options: &ImpositionOptions,
-) -> (String, ObjectId) {
-    // Create font
-    let mut font_dict = Dictionary::new();
-    font_dict.set("Type", Object::Name(b"Font".to_vec()));
-    font_dict.set("Subtype", Object::Name(b"Type1".to_vec()));
-    font_dict.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
-    let font_id = output.add_object(font_dict);
-
-    let mut ops = String::new();
-
-    for placement in &layout.placements {
-        if let Some(source_idx) = placement.source_page {
-            let page_num = options.page_number_start + source_idx;
-            let page_num_text = page_num.to_string();
-
-            // Calculate cell position
-            let cell_x =
-                layout.leaf_bounds.x + placement.slot.grid_pos.col as f32 * grid.cell_width_pt;
-            let cell_y = layout.leaf_bounds.y
-                + (grid.rows - placement.slot.grid_pos.row - 1) as f32 * grid.cell_height_pt;
-
-            if placement.is_rotated() {
-                // Rotated: position at top (appears at bottom after rotation)
-                let text_x = cell_x + grid.cell_width_pt / 2.0;
-                let text_y = cell_y + grid.cell_height_pt - PAGE_NUMBER_OFFSET;
-                ops.push_str(&format!(
-                    "q 1 0 0 1 {} {} cm -1 0 0 -1 0 0 cm BT /F1 {} Tf ({}) Tj ET Q\n",
-                    text_x, text_y, PAGE_NUMBER_FONT_SIZE, page_num_text
-                ));
-            } else {
-                // Normal: position at bottom center
-                let text_width =
-                    page_num_text.len() as f32 * PAGE_NUMBER_FONT_SIZE * HELVETICA_CHAR_WIDTH_RATIO;
-                let text_x = cell_x + grid.cell_width_pt / 2.0 - text_width / 2.0;
-                let text_y = cell_y + PAGE_NUMBER_OFFSET;
-                ops.push_str(&format!(
-                    "BT /F1 {} Tf {} {} Td ({}) Tj ET\n",
-                    PAGE_NUMBER_FONT_SIZE, text_x, text_y, page_num_text
-                ));
-            }
-        }
-    }
-
-    (ops, font_id)
-}

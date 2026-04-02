@@ -1,10 +1,16 @@
 //! Signature binding imposition (folded sheets)
+//!
+//! This module implements signature-based imposition using the spread model:
+//! - Folio: 1 spread per side (4 pages per signature)
+//! - Quarto: 2 spreads per side (8 pages per signature)
+//! - Octavo: 4 spreads per side (16 pages per signature)
 
-use super::sheet::{calculate_sheet_placements, render_sheet};
-use super::sheet_dimensions_pt;
-use crate::constants::mm_to_pt;
+use super::sheet::render_sheet_spreads;
+use super::{calculate_leaf_bounds, sheet_dimensions_pt};
 use crate::layout::{
-    Rect, SheetLayout, SheetSide, calculate_signature_slots, create_grid_layout, map_pages_to_slots,
+    ArrangementConfig, SheetSide, SpreadSheetLayout, apply_page_assignments,
+    assign_pages_to_spreads, calculate_cut_edges, calculate_signature_count,
+    calculate_spread_positions,
 };
 use crate::options::ImpositionOptions;
 use crate::render::get_page_dimensions;
@@ -18,6 +24,8 @@ pub(crate) fn impose_signature_binding(
     options: &ImpositionOptions,
 ) -> Result<Document> {
     let total_pages = page_ids.len();
+    let arrangement = options.page_arrangement;
+    let config = ArrangementConfig::for_arrangement(arrangement);
 
     // Get source page dimensions
     let source_dimensions: Vec<(f32, f32)> = page_ids
@@ -27,105 +35,71 @@ pub(crate) fn impose_signature_binding(
         })
         .collect();
 
-    // Calculate output dimensions and leaf area
+    // Calculate output dimensions and leaf bounds
     let (output_width_pt, output_height_pt) = sheet_dimensions_pt(options);
     let leaf_bounds = calculate_leaf_bounds(options, output_width_pt, output_height_pt);
 
-    // Create grid layout
-    let grid = create_grid_layout(
-        options.page_arrangement,
-        leaf_bounds.width,
-        leaf_bounds.height,
-        output_width_pt,
-        output_height_pt,
-    );
-
-    // Calculate signature slots
-    let signatures = calculate_signature_slots(total_pages, options.page_arrangement);
+    // Get cut edges for the arrangement (same for all signatures)
+    let cut_edges = calculate_cut_edges(arrangement);
 
     // Build output document
     let mut output = Document::with_version("1.7");
     let pages_tree_id = output.new_object_id();
     let mut page_refs = Vec::new();
 
+    // Calculate number of signatures needed
+    let num_signatures = calculate_signature_count(total_pages, arrangement);
+
     // Process each signature
-    for (sig_num, sig_slots) in signatures.iter().enumerate() {
-        let sig_start = sig_num * options.page_arrangement.pages_per_signature();
+    for sig_num in 0..num_signatures {
+        let sig_start = sig_num * config.pages_per_signature;
 
-        // Map source pages to slots
-        let page_mapping = map_pages_to_slots(options.page_arrangement, sig_start, total_pages);
+        // Assign pages to spreads for this signature
+        let page_assignment = assign_pages_to_spreads(arrangement, sig_start, total_pages);
 
-        // Split slots by sheet side
-        let front_slots: Vec<_> = sig_slots
-            .iter()
-            .filter(|s| s.sheet_side == SheetSide::Front)
-            .collect();
-        let back_slots: Vec<_> = sig_slots
-            .iter()
-            .filter(|s| s.sheet_side == SheetSide::Back)
-            .collect();
+        // Calculate spread positions (geometry only, same for all signatures)
+        let spread_positions =
+            calculate_spread_positions(arrangement, leaf_bounds, &options.margins.leaf);
 
-        // Render front side
-        let front_placements = calculate_sheet_placements(
-            &grid,
-            &front_slots,
-            &page_mapping[..front_slots.len()],
-            &source_dimensions,
-            &options.margins.leaf,
-            options.scaling_mode,
-            (leaf_bounds.x, leaf_bounds.y),
+        // Front side: apply page assignments to spread positions
+        let front_spreads = apply_page_assignments(
+            &spread_positions,
+            page_assignment.for_side(SheetSide::Front),
         );
+        let front_layout = SpreadSheetLayout::new(SheetSide::Front, front_spreads, leaf_bounds);
 
-        let front_layout = SheetLayout {
-            side: SheetSide::Front,
-            placements: front_placements,
-            leaf_bounds,
-        };
-
-        let front_page_id = render_sheet(
+        let front_page_id = render_sheet_spreads(
             &mut output,
             source,
             page_ids,
             &front_layout,
+            &cut_edges,
+            &source_dimensions,
             output_width_pt,
             output_height_pt,
             pages_tree_id,
-            &grid,
             options,
         )?;
         page_refs.push(Object::Reference(front_page_id));
 
-        // Render back side
-        if !back_slots.is_empty() {
-            let back_placements = calculate_sheet_placements(
-                &grid,
-                &back_slots,
-                &page_mapping[front_slots.len()..],
-                &source_dimensions,
-                &options.margins.leaf,
-                options.scaling_mode,
-                (leaf_bounds.x, leaf_bounds.y),
-            );
+        // Back side: same geometry, different page assignments
+        let back_spreads =
+            apply_page_assignments(&spread_positions, page_assignment.for_side(SheetSide::Back));
+        let back_layout = SpreadSheetLayout::new(SheetSide::Back, back_spreads, leaf_bounds);
 
-            let back_layout = SheetLayout {
-                side: SheetSide::Back,
-                placements: back_placements,
-                leaf_bounds,
-            };
-
-            let back_page_id = render_sheet(
-                &mut output,
-                source,
-                page_ids,
-                &back_layout,
-                output_width_pt,
-                output_height_pt,
-                pages_tree_id,
-                &grid,
-                options,
-            )?;
-            page_refs.push(Object::Reference(back_page_id));
-        }
+        let back_page_id = render_sheet_spreads(
+            &mut output,
+            source,
+            page_ids,
+            &back_layout,
+            &cut_edges,
+            &source_dimensions,
+            output_width_pt,
+            output_height_pt,
+            pages_tree_id,
+            options,
+        )?;
+        page_refs.push(Object::Reference(back_page_id));
     }
 
     // Finalize document
@@ -133,19 +107,13 @@ pub(crate) fn impose_signature_binding(
     Ok(output)
 }
 
-/// Calculate the leaf area bounds (inside sheet margins)
-fn calculate_leaf_bounds(options: &ImpositionOptions, width_pt: f32, height_pt: f32) -> Rect {
-    let margins = &options.margins.sheet;
-    Rect::new(
-        mm_to_pt(margins.left_mm),
-        mm_to_pt(margins.bottom_mm),
-        width_pt - mm_to_pt(margins.left_mm) - mm_to_pt(margins.right_mm),
-        height_pt - mm_to_pt(margins.top_mm) - mm_to_pt(margins.bottom_mm),
-    )
-}
 
 /// Create pages tree and catalog, finalize document structure
-fn finalize_document(output: &mut Document, pages_tree_id: ObjectId, page_refs: Vec<Object>) {
+pub(crate) fn finalize_document(
+    output: &mut Document,
+    pages_tree_id: ObjectId,
+    page_refs: Vec<Object>,
+) {
     let count = page_refs.len() as i64;
     let pages_dict = Dictionary::from_iter(vec![
         ("Type", Object::Name(b"Pages".to_vec())),
