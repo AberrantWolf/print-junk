@@ -67,6 +67,10 @@ fn copy_pages_to_new_document(source: &Document, page_ids: &[lopdf::ObjectId]) -
     for &page_id in page_ids {
         if let Ok(page_obj) = source.get_object(page_id) {
             let new_page_id = copy_page_object(&mut dest, source, page_obj, &mut cache)?;
+            // Set Parent to point to the new pages tree
+            if let Ok(page_dict) = dest.get_dictionary_mut(new_page_id) {
+                page_dict.set("Parent", Object::Reference(pages_tree_id));
+            }
             kids.push(Object::Reference(new_page_id));
         }
     }
@@ -112,6 +116,11 @@ fn copy_page_object(
         Object::Dictionary(dict) => {
             let mut new_dict = Dictionary::new();
             for (key, value) in dict.iter() {
+                // Skip "Parent" to avoid circular reference (Page → Pages tree → Kids → Page)
+                // The page will get a new parent when added to the destination pages tree.
+                if key == b"Parent" {
+                    continue;
+                }
                 let new_value = copy_value_for_page(dest, source, value, cache)?;
                 new_dict.set(key.clone(), new_value);
             }
