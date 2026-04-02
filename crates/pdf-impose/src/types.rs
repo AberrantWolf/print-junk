@@ -159,6 +159,31 @@ impl BindingType {
     pub fn uses_signatures(self) -> bool {
         matches!(self, BindingType::Signature | BindingType::CaseBinding)
     }
+
+    /// What type of boundary internal grid lines represent for this binding type.
+    /// Signature/case binding folds the sheet, so internal boundaries are folds.
+    /// Other binding types cut pages apart, so internal boundaries are cuts.
+    pub fn internal_boundary_type(self) -> BoundaryType {
+        if self.uses_signatures() {
+            BoundaryType::Fold
+        } else {
+            BoundaryType::Cut
+        }
+    }
+}
+
+/// Whether an internal grid boundary on the imposed sheet is a fold or a cut.
+///
+/// In signature binding, all internal boundaries are folds — cuts happen at the
+/// edges of the folded signature (head, tail, fore-edge). In non-signature
+/// bindings (perfect, side-stitch, spiral), internal boundaries are cuts because
+/// pages are separated before binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BoundaryType {
+    /// Paper is folded here (signature/case binding)
+    Fold,
+    /// Paper is cut here (perfect/side-stitch/spiral binding)
+    Cut,
 }
 
 /// Page arrangement within a signature
@@ -386,6 +411,7 @@ pub struct Margins {
 /// These marks help with alignment, folding, and trimming during finishing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct PrinterMarks {
     /// Add fold lines (dashed) - where paper should be folded
     pub fold_lines: bool,
@@ -397,6 +423,10 @@ pub struct PrinterMarks {
     pub trim_marks: bool,
     /// Add registration marks (crosshairs for alignment)
     pub registration_marks: bool,
+    /// Add sewing station marks along spine fold (signature/case binding only)
+    pub sewing_marks: bool,
+    /// Add collation marks on spine edge for signature ordering verification
+    pub collation_marks: bool,
 }
 
 impl PrinterMarks {
@@ -408,6 +438,8 @@ impl PrinterMarks {
             crop_marks: true,
             trim_marks: true,
             registration_marks: true,
+            sewing_marks: true,
+            collation_marks: true,
         }
     }
 
@@ -418,6 +450,32 @@ impl PrinterMarks {
             || self.crop_marks
             || self.trim_marks
             || self.registration_marks
+            || self.sewing_marks
+            || self.collation_marks
+    }
+}
+
+// =============================================================================
+// Sewing Configuration
+// =============================================================================
+
+/// Configuration for sewing station marks along the spine fold
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
+pub struct SewingConfig {
+    /// Number of sewing stations between the two kettle stitch positions
+    pub station_count: usize,
+    /// Distance from head/tail edges to kettle stitch holes, in mm
+    pub kettle_offset_mm: f32,
+}
+
+impl Default for SewingConfig {
+    fn default() -> Self {
+        Self {
+            station_count: 3,
+            kettle_offset_mm: 12.0,
+        }
     }
 }
 

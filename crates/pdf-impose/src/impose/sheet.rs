@@ -4,7 +4,7 @@ use crate::layout::{
     ArrangementConfig, PagePlacement, SpreadCutEdges, SpreadSheetLayout,
     calculate_spread_placements,
 };
-use crate::marks::{ContentBounds, MarksConfig, generate_marks};
+use crate::marks::{ContentBounds, MarksConfig, MarksContext, generate_marks};
 use crate::options::ImpositionOptions;
 use crate::render::{create_page_xobject, render_page_numbers};
 use crate::types::*;
@@ -27,6 +27,8 @@ pub(crate) fn render_sheet_spreads(
     sheet_height_pt: f32,
     parent_pages_id: ObjectId,
     options: &ImpositionOptions,
+    signature_index: usize,
+    total_signatures: usize,
 ) -> Result<ObjectId> {
     let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);
 
@@ -78,9 +80,9 @@ pub(crate) fn render_sheet_spreads(
     if options.marks.any_enabled() {
         let config = ArrangementConfig::for_arrangement(options.page_arrangement);
 
-        // Determine cut positions
-        let horizontal_cuts: Vec<usize> = (0..config.rows.saturating_sub(1)).collect();
-        let vertical_cuts: Vec<usize> = vec![]; // Current arrangements have no vertical cuts
+        // Determine internal boundary positions
+        let horizontal_boundaries: Vec<usize> = (0..config.rows.saturating_sub(1)).collect();
+        let vertical_boundaries: Vec<usize> = (0..config.cols.saturating_sub(1)).collect();
 
         let cell_width = layout.leaf_bounds.width / config.cols as f32;
         let cell_height = layout.leaf_bounds.height / config.rows as f32;
@@ -95,10 +97,17 @@ pub(crate) fn render_sheet_spreads(
             leaf_right: layout.leaf_bounds.right(),
             leaf_top: layout.leaf_bounds.top(),
             content_bounds,
-            vertical_cuts,
-            horizontal_cuts,
+            vertical_boundaries,
+            horizontal_boundaries,
+            boundary_type: options.binding_type.internal_boundary_type(),
         };
-        content_ops.push(generate_marks(&options.marks, &marks_config));
+        let marks_ctx = MarksContext {
+            binding_type: options.binding_type,
+            signature_index,
+            total_signatures,
+            sewing_config: options.sewing_config,
+        };
+        content_ops.push(generate_marks(&options.marks, &marks_config, Some(&marks_ctx)));
     }
 
     // Add page numbers

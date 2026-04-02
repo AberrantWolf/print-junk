@@ -100,6 +100,22 @@ enum Commands {
         #[arg(long)]
         registration_marks: bool,
 
+        /// Add sewing station marks along spine fold
+        #[arg(long)]
+        sewing_marks: bool,
+
+        /// Add collation marks (back marks) on spine edge
+        #[arg(long)]
+        collation_marks: bool,
+
+        /// Number of sewing stations between kettle stitches
+        #[arg(long, default_value = "3")]
+        sewing_stations: usize,
+
+        /// Distance from head/tail to kettle stitch holes in mm
+        #[arg(long, default_value = "12.0")]
+        kettle_offset: f32,
+
         /// Sheet margin in mm (uniform on all sides)
         #[arg(long, default_value = "5.0")]
         sheet_margin: f32,
@@ -287,6 +303,10 @@ async fn main() -> Result<()> {
             crop_marks,
             trim_marks,
             registration_marks,
+            sewing_marks,
+            collation_marks,
+            sewing_stations,
+            kettle_offset,
             sheet_margin,
             leaf_spine_margin,
             leaf_fore_edge_margin,
@@ -321,6 +341,12 @@ async fn main() -> Result<()> {
                     crop_marks,
                     trim_marks,
                     registration_marks,
+                    sewing_marks,
+                    collation_marks,
+                },
+                sewing_config: pdf_impose::SewingConfig {
+                    station_count: sewing_stations,
+                    kettle_offset_mm: kettle_offset,
                 },
                 ..Default::default()
             };

@@ -27,6 +27,9 @@ pub struct ImpositionOptions {
     // Printer's marks
     pub marks: PrinterMarks,
 
+    // Sewing configuration (for sewing station marks)
+    pub sewing_config: SewingConfig,
+
     // Page numbering
     pub add_page_numbers: bool,
     pub page_number_start: usize,
@@ -54,6 +57,7 @@ impl Default for ImpositionOptions {
             scaling_mode: ScalingMode::Fit,
             margins: Margins::default(),
             marks: PrinterMarks::default(),
+            sewing_config: SewingConfig::default(),
             add_page_numbers: false,
             page_number_start: 1,
             front_flyleaves: 0,

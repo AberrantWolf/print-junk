@@ -60,8 +60,9 @@ pub struct ViewerState {
     pub total_pages: usize,
     pub page_texture: Option<egui::TextureHandle>,
     /// When Some, zoom controls are shown and zoom rendering is active.
-    /// None for impose/flashcard previews (legacy fixed-size rendering).
     pub zoom: Option<ZoomState>,
+    /// Whether to show the "Close PDF" button (false for embedded previews)
+    pub show_close_button: bool,
 }
 
 impl ViewerState {
@@ -73,6 +74,7 @@ impl ViewerState {
             total_pages: page_count,
             page_texture: None,
             zoom: None,
+            show_close_button: true,
         }
     }
 
@@ -149,9 +151,11 @@ pub fn show_viewer(
 
             ui.separator();
 
-            if ui.button("Close PDF").clicked() {
-                if let Some(doc_id) = state.current_doc_id {
-                    let _ = command_tx.send(PdfCommand::ViewerClose { doc_id });
+            if state.show_close_button {
+                if ui.button("Close PDF").clicked() {
+                    if let Some(doc_id) = state.current_doc_id {
+                        let _ = command_tx.send(PdfCommand::ViewerClose { doc_id });
+                    }
                 }
             }
         });
