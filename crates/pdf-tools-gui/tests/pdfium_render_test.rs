@@ -158,8 +158,7 @@ startxref
         );
 
         println!(
-            "✓ Pdfium successfully loaded and rendered PDF ({}x{} bitmap, {} non-zero pixels)",
-            bitmap_width, bitmap_height, non_zero_pixels
+            "✓ Pdfium successfully loaded and rendered PDF ({bitmap_width}x{bitmap_height} bitmap, {non_zero_pixels} non-zero pixels)"
         );
     }
 }

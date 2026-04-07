@@ -106,9 +106,9 @@ fn place_single_page(
 
     // Create a SignatureSlot for compatibility with rendering
     let slot = SignatureSlot {
-        slot_index: spread_pos.spread_index * 2 + if page_side.is_recto() { 1 } else { 0 },
+        slot_index: spread_pos.spread_index * 2 + usize::from(page_side.is_recto()),
         sheet_side,
-        grid_pos: GridPosition::new(0, if page_side.is_recto() { 1 } else { 0 }),
+        grid_pos: GridPosition::new(0, usize::from(page_side.is_recto())),
         rotated: spread_pos.rotated,
         page_side,
     };
@@ -132,7 +132,7 @@ fn place_single_page(
 /// * `scaling_mode` - How to scale pages
 ///
 /// # Returns
-/// Vector of all PagePlacements for rendering
+/// Vector of all `PagePlacements` for rendering
 pub fn calculate_spread_placements(
     spreads: &[SpreadPosition],
     cut_edges: &[SpreadCutEdges],

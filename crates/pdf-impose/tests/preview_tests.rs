@@ -84,8 +84,8 @@ async fn test_generate_preview_different_sheet_counts() {
     options.input_files.push(PathBuf::from("test.pdf"));
 
     for max_sigs in 1..=5 {
-        let preview = generate_preview(&[doc.clone()], &options, Some(max_sigs)).await;
-        assert!(preview.is_ok(), "Failed with max_sigs: {}", max_sigs);
+        let preview = generate_preview(std::slice::from_ref(&doc), &options, Some(max_sigs)).await;
+        assert!(preview.is_ok(), "Failed with max_sigs: {max_sigs}");
 
         let output = preview.unwrap();
         // 16 pages with default Quarto (8 per signature)

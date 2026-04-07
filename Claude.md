@@ -111,3 +111,12 @@ pdft impose -i input.pdf -o output.pdf \
 7. **Always favor the latest version of a crate**
 8. **There is no stable API** - always favor better design choices over preserving existing API
 9. **If a new system is implemented, use it** - Always replace old systems with new ones. API stability is how you get bad code in this project.
+10. **Never fix linting by using `#[allow(...)]`** - Always fix the underlying code. Workspace-level allows in `Cargo.toml` are acceptable temporarily but should be eliminated over time by reworking the code (see TODO in `Cargo.toml`).
+
+## Planning Requirements
+
+Every implementation plan must include sections addressing:
+
+1. **DRY codebase** — Identify opportunities to reduce duplication, extract shared logic, and reuse existing abstractions. If the change introduces patterns already present elsewhere, consolidate them.
+2. **Best practices** — Review and improve adherence to codebase conventions, Rust idioms, and the development guidelines above. Flag any existing anti-patterns the change touches and propose fixes.
+3. **Usefulness for printers and bookbinders** — Evaluate the change from the perspective of real-world print production. Ensure terminology, defaults, and behavior align with professional printing and bookbinding workflows.

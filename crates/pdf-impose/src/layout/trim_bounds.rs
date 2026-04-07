@@ -50,13 +50,13 @@ impl UnifiedTrimBounds {
             .iter()
             .filter(|r| r.is_valid())
             .map(|r| r.width)
-            .fold(0.0_f32, |a, b| a.max(b));
+            .fold(0.0_f32, f32::max);
 
         let max_height = rects
             .iter()
             .filter(|r| r.is_valid())
             .map(|r| r.height)
-            .fold(0.0_f32, |a, b| a.max(b));
+            .fold(0.0_f32, f32::max);
 
         Self {
             max_content_width: max_width,
@@ -68,15 +68,9 @@ impl UnifiedTrimBounds {
     ///
     /// Takes a list of (width, height) tuples for source pages.
     pub fn from_page_dimensions(dimensions: &[(f32, f32)]) -> Self {
-        let max_width = dimensions
-            .iter()
-            .map(|(w, _)| *w)
-            .fold(0.0_f32, |a, b| a.max(b));
+        let max_width = dimensions.iter().map(|(w, _)| *w).fold(0.0_f32, f32::max);
 
-        let max_height = dimensions
-            .iter()
-            .map(|(_, h)| *h)
-            .fold(0.0_f32, |a, b| a.max(b));
+        let max_height = dimensions.iter().map(|(_, h)| *h).fold(0.0_f32, f32::max);
 
         Self {
             max_content_width: max_width,

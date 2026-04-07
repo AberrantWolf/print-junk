@@ -6,6 +6,8 @@
 //! All mark positions are derived from actual spread layout data via
 //! `MarksConfig::from_layout()`, ensuring marks always align with page content.
 
+use std::fmt::Write;
+
 use crate::constants::mm_to_pt;
 use crate::constants::{
     BEZIER_CIRCLE_FACTOR, COLLATION_MARK_HEIGHT, COLLATION_MARK_WIDTH, CROP_MARK_GAP,
@@ -74,9 +76,9 @@ impl MarksConfig {
             // Find any spread in this column to get the spine X
             // All spreads in the same column have the same X origin and width
             let col_spread = spreads.iter().find(|s| s.spread_index % cols == col);
-            let spine_x = col_spread
-                .map(|s| s.origin.x + s.width / 2.0)
-                .unwrap_or(leaf_bounds.x + leaf_bounds.width / 2.0);
+            let spine_x = col_spread.map_or(leaf_bounds.x + leaf_bounds.width / 2.0, |s| {
+                s.origin.x + s.width / 2.0
+            });
 
             // Collect per-row vertical spans for this column
             let mut row_spans = Vec::with_capacity(rows);
@@ -101,7 +103,7 @@ impl MarksConfig {
             if let (Some(r), Some(l)) = (right_spread, left_next) {
                 let right_edge = r.origin.x + r.width;
                 let left_edge = l.origin.x;
-                vertical_boundary_xs.push((right_edge + left_edge) / 2.0);
+                vertical_boundary_xs.push(f32::midpoint(right_edge, left_edge));
             }
         }
 
@@ -113,7 +115,7 @@ impl MarksConfig {
             if let (Some(t), Some(b)) = (top_spread, bottom_next) {
                 let top_edge = t.origin.y + t.height;
                 let bottom_edge = b.origin.y;
-                horizontal_boundary_ys.push((top_edge + bottom_edge) / 2.0);
+                horizontal_boundary_ys.push(f32::midpoint(top_edge, bottom_edge));
             }
         }
 
@@ -131,7 +133,7 @@ impl MarksConfig {
 
     /// Build a simple marks config for the standalone render API (no spread data).
     ///
-    /// Uses uniform grid geometry — only correct when trim_allowance is 0.
+    /// Uses uniform grid geometry — only correct when `trim_allowance` is 0.
     pub fn simple(cols: usize, rows: usize, leaf_bounds: &Rect) -> Self {
         let cell_width = leaf_bounds.width / cols.max(1) as f32;
         let cell_height = leaf_bounds.height / rows.max(1) as f32;
@@ -200,7 +202,7 @@ pub struct MarksContext {
 /// - Collation marks: front of outermost sheet only — spine stacking verification
 /// - Sewing marks: back (inside) only — sew from inside opened signature
 /// - Crop/trim/registration: both sides — printer/cutter alignment
-fn filter_marks_for_context(marks: &PrinterMarks, ctx: &MarksContext) -> PrinterMarks {
+fn filter_marks_for_context(marks: PrinterMarks, ctx: &MarksContext) -> PrinterMarks {
     let is_front = ctx.sheet_side == SheetSide::Front;
     let is_outermost = ctx.sheet_in_signature == 0;
 
@@ -208,7 +210,7 @@ fn filter_marks_for_context(marks: &PrinterMarks, ctx: &MarksContext) -> Printer
         fold_lines: marks.fold_lines && is_front,
         collation_marks: marks.collation_marks && is_front && is_outermost,
         sewing_marks: marks.sewing_marks && !is_front,
-        ..*marks
+        ..marks
     }
 }
 
@@ -221,14 +223,14 @@ fn filter_marks_for_context(marks: &PrinterMarks, ctx: &MarksContext) -> Printer
 /// Pass `ctx` as `None` when calling from the standalone render API (no binding context).
 /// Sewing and collation marks require a context and are silently skipped without one.
 pub fn generate_marks(
-    marks: &PrinterMarks,
+    marks: PrinterMarks,
     config: &MarksConfig,
     ctx: Option<&MarksContext>,
 ) -> String {
     // Filter marks based on physical sheet side and position
     let marks = match ctx {
         Some(c) => filter_marks_for_context(marks, c),
-        None => *marks,
+        None => marks,
     };
 
     let mut ops = String::new();
@@ -279,7 +281,7 @@ pub fn generate_marks(
 /// - Spine fold within each spread column (vertical, contained within each row)
 fn generate_fold_lines(config: &MarksConfig) -> String {
     let mut ops = String::new();
-    ops.push_str(&format!("{} w\n[6 3] 0 d\n", FOLD_LINE_WIDTH));
+    let _ = write!(ops, "{FOLD_LINE_WIDTH} w\n[6 3] 0 d\n");
 
     // Vertical fold lines at inter-spread boundaries
     for &x in &config.vertical_boundary_xs {
@@ -322,7 +324,7 @@ fn generate_trim_marks(config: &MarksConfig) -> String {
     }
 
     let mut ops = String::new();
-    ops.push_str(&format!("{} w\n[] 0 d\n", CROP_MARK_WIDTH));
+    let _ = write!(ops, "{CROP_MARK_WIDTH} w\n[] 0 d\n");
 
     let half_gap = config.trim_allowance_pt / 2.0;
 
@@ -382,7 +384,7 @@ fn generate_trim_marks(config: &MarksConfig) -> String {
 /// Draw a single trim extension line from a point on the leaf edge outward.
 ///
 /// `dx` and `dy` indicate direction: e.g. (-1, 0) = leftward, (0, 1) = upward.
-/// The line starts at GAP offset from the origin and extends for CROP_MARK_LENGTH.
+/// The line starts at GAP offset from the origin and extends for `CROP_MARK_LENGTH`.
 fn draw_trim_extension(x: f32, y: f32, dx: f32, dy: f32) -> String {
     draw_line(
         x + dx * CROP_MARK_GAP,
@@ -399,7 +401,7 @@ fn draw_trim_extension(x: f32, y: f32, dx: f32, dy: f32) -> String {
 /// Generate crop marks (L-shaped marks at corners of the leaf area)
 fn generate_crop_marks(config: &MarksConfig) -> String {
     let mut ops = String::new();
-    ops.push_str(&format!("{} w\n[] 0 d\n", CROP_MARK_WIDTH));
+    let _ = write!(ops, "{CROP_MARK_WIDTH} w\n[] 0 d\n");
     ops.push_str(&draw_corner_marks(
         config.leaf_left,
         config.leaf_bottom,
@@ -450,13 +452,13 @@ fn draw_corner_mark(x: f32, y: f32, x_sign: f32, y_sign: f32) -> String {
 /// Generate registration marks (crosshair circles at midpoints of leaf edges)
 fn generate_registration_marks(config: &MarksConfig) -> String {
     let mut ops = String::new();
-    ops.push_str(&format!("{} w\n", REGISTRATION_MARK_WIDTH));
+    let _ = writeln!(ops, "{REGISTRATION_MARK_WIDTH} w");
 
     let offset = CROP_MARK_GAP + REGISTRATION_MARK_SIZE;
     let half_size = REGISTRATION_MARK_SIZE / 2.0;
 
-    let mid_x = (config.leaf_left + config.leaf_right) / 2.0;
-    let mid_y = (config.leaf_top + config.leaf_bottom) / 2.0;
+    let mid_x = f32::midpoint(config.leaf_left, config.leaf_right);
+    let mid_y = f32::midpoint(config.leaf_top, config.leaf_bottom);
 
     // Draw at center of each edge
     let positions = [
@@ -502,7 +504,7 @@ fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
     }
 
     let mut ops = String::new();
-    ops.push_str(&format!("{} w\n[] 0 d\n", SEWING_MARK_WIDTH));
+    let _ = write!(ops, "{SEWING_MARK_WIDTH} w\n[] 0 d\n");
 
     let kettle_offset_pt = mm_to_pt(ctx.sewing_config.kettle_offset_mm);
     let half_mark = SEWING_MARK_LENGTH / 2.0;
@@ -576,10 +578,10 @@ fn generate_collation_marks(config: &MarksConfig, ctx: &MarksContext) -> String 
 
     for spine in &config.spine_positions {
         let rect_x = spine.x - COLLATION_MARK_WIDTH / 2.0;
-        ops.push_str(&format!(
-            "{} {} {} {} re f\n",
-            rect_x, mark_y, COLLATION_MARK_WIDTH, COLLATION_MARK_HEIGHT
-        ));
+        let _ = writeln!(
+            ops,
+            "{rect_x} {mark_y} {COLLATION_MARK_WIDTH} {COLLATION_MARK_HEIGHT} re f"
+        );
     }
 
     ops
@@ -591,7 +593,7 @@ fn generate_collation_marks(config: &MarksConfig, ctx: &MarksContext) -> String 
 
 /// Draw a line from (x1, y1) to (x2, y2)
 fn draw_line(x1: f32, y1: f32, x2: f32, y2: f32) -> String {
-    format!("{} {} m {} {} l S\n", x1, y1, x2, y2)
+    format!("{x1} {y1} m {x2} {y2} l S\n")
 }
 
 /// Draw a circle at (cx, cy) with given radius using Bezier curves

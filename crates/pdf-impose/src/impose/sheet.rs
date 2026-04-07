@@ -7,7 +7,7 @@ use crate::layout::{
 use crate::marks::{MarksConfig, MarksContext, generate_marks};
 use crate::options::ImpositionOptions;
 use crate::render::{create_page_xobject, render_page_numbers};
-use crate::types::*;
+use crate::types::Result;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::HashMap;
 
@@ -50,19 +50,19 @@ pub(crate) fn render_sheet_spreads(
 
     // Render each page placement
     for (idx, placement) in placements.iter().enumerate() {
-        if let Some(source_idx) = placement.source_page {
-            if source_idx < source_page_ids.len() {
-                let source_page_id = source_page_ids[source_idx];
-                let xobject_name = format!("P{}", idx);
+        if let Some(source_idx) = placement.source_page
+            && source_idx < source_page_ids.len()
+        {
+            let source_page_id = source_page_ids[source_idx];
+            let xobject_name = format!("P{idx}");
 
-                // Create XObject
-                let xobject_id =
-                    create_page_xobject(output, source, source_page_id, &mut xobject_cache)?;
-                xobjects.set(xobject_name.as_bytes(), Object::Reference(xobject_id));
+            // Create XObject
+            let xobject_id =
+                create_page_xobject(output, source, source_page_id, &mut xobject_cache)?;
+            xobjects.set(xobject_name.as_bytes(), Object::Reference(xobject_id));
 
-                // Generate placement command
-                content_ops.push(generate_placement_cmd(&xobject_name, placement));
-            }
+            // Generate placement command
+            content_ops.push(generate_placement_cmd(&xobject_name, placement));
         }
     }
 
@@ -84,7 +84,7 @@ pub(crate) fn render_sheet_spreads(
             sheet_in_signature,
         };
         content_ops.push(generate_marks(
-            &options.marks,
+            options.marks,
             &marks_config,
             Some(&marks_ctx),
         ));
@@ -136,7 +136,7 @@ fn create_page_dict(parent_id: ObjectId, width: f32, height: f32) -> Dictionary 
     dict
 }
 
-/// Generate PDF command to place an XObject
+/// Generate PDF command to place an `XObject`
 fn generate_placement_cmd(xobject_name: &str, placement: &PagePlacement) -> String {
     let rect = &placement.content_rect;
 

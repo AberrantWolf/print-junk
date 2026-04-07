@@ -45,7 +45,7 @@ pub fn render_imposed_page(
     sheet_width_pt: f32,
     sheet_height_pt: f32,
     parent_pages_id: ObjectId,
-    marks: &PrinterMarks,
+    marks: PrinterMarks,
     leaf_bounds: &Rect,
     grid_cols: usize,
     grid_rows: usize,
@@ -72,22 +72,22 @@ pub fn render_imposed_page(
     let mut xobject_cache: HashMap<ObjectId, ObjectId> = HashMap::new();
     // Render each page placement
     for (idx, placement) in placements.iter().enumerate() {
-        if let Some(source_idx) = placement.source_page {
-            if source_idx < source_page_ids.len() {
-                let source_page_id = source_page_ids[source_idx];
-                let xobject_name = format!("P{}", idx);
+        if let Some(source_idx) = placement.source_page
+            && source_idx < source_page_ids.len()
+        {
+            let source_page_id = source_page_ids[source_idx];
+            let xobject_name = format!("P{idx}");
 
-                let xobject_id =
-                    create_page_xobject(output, source, source_page_id, &mut xobject_cache)?;
-                xobjects.set(xobject_name.as_bytes(), Object::Reference(xobject_id));
+            let xobject_id =
+                create_page_xobject(output, source, source_page_id, &mut xobject_cache)?;
+            xobjects.set(xobject_name.as_bytes(), Object::Reference(xobject_id));
 
-                content_ops.push(generate_placement_command(
-                    &xobject_name,
-                    &placement.content_rect,
-                    placement.scale,
-                    placement.rotation_degrees,
-                ));
-            }
+            content_ops.push(generate_placement_command(
+                &xobject_name,
+                &placement.content_rect,
+                placement.scale,
+                placement.rotation_degrees,
+            ));
         }
     }
 

@@ -112,17 +112,16 @@ fn show_split_mode_selector(ui: &mut egui::Ui, state: &mut ImposeState) -> bool 
             changed = true;
         }
 
-        if state.options.binding_type.uses_signatures() {
-            if ui
+        if state.options.binding_type.uses_signatures()
+            && ui
                 .selectable_label(
                     matches!(state.options.split_mode, SplitMode::BySignatures(_)),
                     "By signatures",
                 )
                 .clicked()
-            {
-                state.options.split_mode = SplitMode::BySignatures(5);
-                changed = true;
-            }
+        {
+            state.options.split_mode = SplitMode::BySignatures(5);
+            changed = true;
         }
     });
 

@@ -200,15 +200,14 @@ fn show_csv_section(
     ui.label("CSV File:");
     ui.horizontal(|ui| {
         ui.text_edit_singleline(&mut state.csv_path);
-        if ui.button("Browse...").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
+        if ui.button("Browse...").clicked()
+            && let Some(path) = rfd::FileDialog::new()
                 .add_filter("CSV", &["csv"])
                 .pick_file()
-            {
-                state.csv_path = path.display().to_string();
-                log::info!("Loading CSV: {}", path.display());
-                let _ = command_tx.send(PdfCommand::FlashcardsLoadCsv { input_path: path });
-            }
+        {
+            state.csv_path = path.display().to_string();
+            log::info!("Loading CSV: {}", path.display());
+            let _ = command_tx.send(PdfCommand::FlashcardsLoadCsv { input_path: path });
         }
     });
 
@@ -339,11 +338,11 @@ fn show_sizing_section(ui: &mut egui::Ui, state: &mut FlashcardState) {
         let mut changed = false;
 
         changed |= SliderBuilder::new(&mut state.card_width, 0.0..=max)
-            .text(format!("Width ({})", unit))
+            .text(format!("Width ({unit})"))
             .show(ui);
 
         changed |= SliderBuilder::new(&mut state.card_height, 0.0..=max)
-            .text(format!("Height ({})", unit))
+            .text(format!("Height ({unit})"))
             .show(ui);
 
         if changed {
@@ -393,20 +392,18 @@ fn show_actions_section(
     if ui
         .add_enabled(can_generate, egui::Button::new("💾 Save PDF..."))
         .clicked()
-    {
-        if let Some(path) = rfd::FileDialog::new()
+        && let Some(path) = rfd::FileDialog::new()
             .add_filter("PDF", &["pdf"])
             .set_file_name("flashcards.pdf")
             .save_file()
-        {
-            log::info!("Saving flashcards to: {}", path.display());
-            let options = state.to_options();
-            let _ = command_tx.send(PdfCommand::FlashcardsGenerate {
-                cards: state.cards.clone(),
-                options,
-                output_path: path,
-            });
-        }
+    {
+        log::info!("Saving flashcards to: {}", path.display());
+        let options = state.to_options();
+        let _ = command_tx.send(PdfCommand::FlashcardsGenerate {
+            cards: state.cards.clone(),
+            options,
+            output_path: path,
+        });
     }
 
     // Auto-regenerate preview when settings change

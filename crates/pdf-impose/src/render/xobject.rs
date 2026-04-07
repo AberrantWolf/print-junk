@@ -1,33 +1,34 @@
-//! XObject creation for imposition
+//! `XObject` creation for imposition
 //!
-//! This module handles creating Form XObjects from source PDF pages,
+//! This module handles creating Form `XObjects` from source PDF pages,
 //! which are then placed onto output pages with transformations.
 
 use crate::constants::DEFAULT_PAGE_DIMENSIONS;
 use crate::types::Result;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 // =============================================================================
 // XObject Creation
 // =============================================================================
 
-/// Create an XObject from a source page.
+/// Create an `XObject` from a source page.
 ///
-/// The XObject can then be placed multiple times on output pages
+/// The `XObject` can then be placed multiple times on output pages
 /// with different transformations. Results are cached to avoid
 /// duplicating the same object.
 ///
 /// # Arguments
-/// * `output` - The output document to add the XObject to
+/// * `output` - The output document to add the `XObject` to
 /// * `source` - The source document containing the page
 /// * `page_id` - The object ID of the source page
 /// * `cache` - Cache to avoid copying the same object multiple times
-pub fn create_page_xobject(
+pub fn create_page_xobject<S: BuildHasher>(
     output: &mut Document,
     source: &Document,
     page_id: ObjectId,
-    cache: &mut HashMap<ObjectId, ObjectId>,
+    cache: &mut HashMap<ObjectId, ObjectId, S>,
 ) -> Result<ObjectId> {
     let page_dict = source.get_dictionary(page_id)?;
 
@@ -61,7 +62,7 @@ pub fn create_page_xobject(
     Ok(output.add_object(Stream::new(xobject_dict, content_data)))
 }
 
-/// Get default MediaBox for US Letter size
+/// Get default `MediaBox` for US Letter size
 fn default_media_box() -> Vec<Object> {
     vec![
         Object::Integer(0),
@@ -77,9 +78,8 @@ fn default_media_box() -> Vec<Object> {
 
 /// Get the content stream data from a page.
 fn get_page_content(doc: &Document, page_dict: &Dictionary) -> Result<Vec<u8>> {
-    let contents = match page_dict.get(b"Contents") {
-        Ok(c) => c,
-        Err(_) => return Ok(Vec::new()), // No content = blank page
+    let Ok(contents) = page_dict.get(b"Contents") else {
+        return Ok(Vec::new()); // No content = blank page
     };
 
     match contents {
@@ -105,14 +105,14 @@ fn get_concatenated_content_streams(doc: &Document, refs: &[Object]) -> Result<V
     let mut result = Vec::new();
 
     for obj in refs {
-        if let Object::Reference(id) = obj {
-            if let Ok(stream) = doc.get_object(*id)?.as_stream() {
-                let content = stream
-                    .decompressed_content()
-                    .unwrap_or_else(|_| stream.content.clone());
-                result.extend_from_slice(&content);
-                result.push(b'\n');
-            }
+        if let Object::Reference(id) = obj
+            && let Ok(stream) = doc.get_object(*id)?.as_stream()
+        {
+            let content = stream
+                .decompressed_content()
+                .unwrap_or_else(|_| stream.content.clone());
+            result.extend_from_slice(&content);
+            result.push(b'\n');
         }
     }
 
@@ -126,11 +126,11 @@ fn get_concatenated_content_streams(doc: &Document, refs: &[Object]) -> Result<V
 /// Deep copy an object from source to output document, following references.
 ///
 /// Uses a cache to avoid copying the same object multiple times.
-pub fn copy_object_deep(
+pub fn copy_object_deep<S: BuildHasher>(
     output: &mut Document,
     source: &Document,
     obj: &Object,
-    cache: &mut HashMap<ObjectId, ObjectId>,
+    cache: &mut HashMap<ObjectId, ObjectId, S>,
 ) -> Result<Object> {
     match obj {
         Object::Reference(id) => {
@@ -151,7 +151,7 @@ pub fn copy_object_deep(
         }
         Object::Dictionary(dict) => {
             let mut new_dict = Dictionary::new();
-            for (key, value) in dict.iter() {
+            for (key, value) in dict {
                 new_dict.set(key.clone(), copy_object_deep(output, source, value, cache)?);
             }
             Ok(Object::Dictionary(new_dict))
@@ -165,7 +165,7 @@ pub fn copy_object_deep(
         }
         Object::Stream(stream) => {
             let mut new_dict = Dictionary::new();
-            for (key, value) in stream.dict.iter() {
+            for (key, value) in &stream.dict {
                 new_dict.set(key.clone(), copy_object_deep(output, source, value, cache)?);
             }
             Ok(Object::Stream(Stream {
@@ -188,30 +188,19 @@ pub fn copy_object_deep(
 pub fn get_page_dimensions(doc: &Document, page_id: ObjectId) -> Result<(f32, f32)> {
     let page_dict = doc.get_dictionary(page_id)?;
 
-    if let Some(mb) = page_dict
-        .get(b"MediaBox")
-        .and_then(|obj| obj.as_array())
-        .ok()
-    {
+    if let Ok(mb) = page_dict.get(b"MediaBox").and_then(|obj| obj.as_array()) {
         let width = extract_number(&mb[2]).unwrap_or_else(|| {
-            log::warn!(
-                "Page {:?}: could not parse MediaBox width, using default",
-                page_id
-            );
+            log::warn!("Page {page_id:?}: could not parse MediaBox width, using default");
             DEFAULT_PAGE_DIMENSIONS.0
         });
         let height = extract_number(&mb[3]).unwrap_or_else(|| {
-            log::warn!(
-                "Page {:?}: could not parse MediaBox height, using default",
-                page_id
-            );
+            log::warn!("Page {page_id:?}: could not parse MediaBox height, using default");
             DEFAULT_PAGE_DIMENSIONS.1
         });
         Ok((width, height))
     } else {
         log::warn!(
-            "Page {:?}: no MediaBox found, using default Letter dimensions (612×792pt)",
-            page_id
+            "Page {page_id:?}: no MediaBox found, using default Letter dimensions (612×792pt)"
         );
         Ok(DEFAULT_PAGE_DIMENSIONS)
     }

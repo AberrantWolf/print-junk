@@ -3,7 +3,7 @@
 //! - Quarto (8 pages)
 //! - Octavo (16 pages)
 //!
-//! Usage: cargo run --example test_all_formats -p pdf-impose
+//! Usage: cargo run --example `test_all_formats` -p pdf-impose
 //!
 //! This will create test PDFs in the current directory that you can print
 //! and fold to verify the imposition is correct.
@@ -13,24 +13,27 @@
 //! ## How to verify:
 //!
 //! ### Folio (4 pages):
-//! 1. Print test_folio_imposed.pdf double-sided (flip on short edge)
+//! 1. Print `test_folio_imposed.pdf` double-sided (flip on short edge)
 //! 2. Fold once along the vertical center
 //! 3. Pages should read 1, 2, 3, 4 in order
 //!
 //! ### Quarto (8 pages):
-//! 1. Print test_quarto_imposed.pdf double-sided (flip on short edge)
+//! 1. Print `test_quarto_imposed.pdf` double-sided (flip on short edge)
 //! 2. Fold once along the vertical center
 //! 3. Fold again along the horizontal center
 //! 4. Cut the top fold
 //! 5. Pages should read 1, 2, 3, 4, 5, 6, 7, 8 in order
 //!
 //! ### Octavo (16 pages):
-//! 1. Print test_octavo_imposed.pdf double-sided (flip on short edge)
+//! 1. Print `test_octavo_imposed.pdf` double-sided (flip on short edge)
 //! 2. Three folds are needed - see detailed instructions in output
 //! 3. Pages should read 1-16 in order
 
 use lopdf::{Dictionary, Document, Object, Stream};
-use pdf_impose::*;
+use pdf_impose::{
+    BindingType, ImpositionOptions, LeafMargins, Margins, PageArrangement, PaperSize, PrinterMarks,
+    Result, ScalingMode, SheetMargins, impose, save_pdf,
+};
 
 /// Creates a PDF with large centered page numbers for easy visual verification
 /// Page size is A6 (105mm x 148mm) which fits well when imposed onto A4
@@ -131,7 +134,7 @@ async fn create_test_output(
     let source_doc = create_numbered_pdf(num_pages);
 
     // Save source
-    let source_name = format!("{}_source.pdf", name);
+    let source_name = format!("{name}_source.pdf");
     let mut source_bytes = Vec::new();
     source_doc.clone().save_to(&mut source_bytes).unwrap();
     tokio::fs::write(&source_name, source_bytes).await?;
@@ -172,10 +175,10 @@ async fn create_test_output(
     let imposed = impose(&[source_doc], &options).await?;
 
     // Save imposed
-    let imposed_name = format!("{}_imposed.pdf", name);
+    let imposed_name = format!("{name}_imposed.pdf");
     save_pdf(imposed, &imposed_name).await?;
 
-    println!("Created {} and {}", source_name, imposed_name);
+    println!("Created {source_name} and {imposed_name}");
     Ok(())
 }
 

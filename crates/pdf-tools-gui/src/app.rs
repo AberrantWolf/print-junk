@@ -48,7 +48,7 @@ pub struct PdfToolsApp {
 
 impl PdfToolsApp {
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(_cc: &eframe::CreationContext<'_>, tokio_handle: tokio::runtime::Handle) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, tokio_handle: tokio::runtime::Handle) -> Self {
         let logger = AppLogger::new(1000);
         logger.clone().init().expect("Failed to initialize logger");
 
@@ -57,7 +57,7 @@ impl PdfToolsApp {
         let (update_tx, update_rx) = mpsc::unbounded_channel();
 
         // Forward worker updates to the app channel, requesting repaint on each
-        let repaint_ctx = _cc.egui_ctx.clone();
+        let repaint_ctx = cc.egui_ctx.clone();
         tokio_handle.spawn(async move {
             while let Some(update) = worker_update_rx.recv().await {
                 if update_tx.send(update).is_err() {
@@ -87,7 +87,7 @@ impl PdfToolsApp {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let logger = AppLogger::new(1000);
         logger.clone().init().expect("Failed to initialize logger");
 
@@ -96,7 +96,7 @@ impl PdfToolsApp {
         let (update_tx, update_rx) = mpsc::unbounded_channel();
 
         // Forward worker updates to the app channel, requesting repaint on each
-        let repaint_ctx = _cc.egui_ctx.clone();
+        let repaint_ctx = cc.egui_ctx.clone();
         wasm_bindgen_futures::spawn_local(async move {
             while let Some(update) = worker_update_rx.recv().await {
                 if update_tx.send(update).is_err() {
@@ -270,7 +270,7 @@ impl eframe::App for PdfToolsApp {
                     }
                 }
                 PdfUpdate::ImposeLoaded { doc_id, page_count } => {
-                    log::info!("Loaded PDF with {} pages (ID: {:?})", page_count, doc_id);
+                    log::info!("Loaded PDF with {page_count} pages (ID: {doc_id:?})");
                     self.progress = None;
                 }
                 PdfUpdate::ImposeComplete { path } => {
@@ -289,10 +289,7 @@ impl eframe::App for PdfToolsApp {
                     total_signatures,
                 } => {
                     log::info!(
-                        "Preview generated with {} pages ({} of {} signatures)",
-                        page_count,
-                        signatures_shown,
-                        total_signatures
+                        "Preview generated with {page_count} pages ({signatures_shown} of {total_signatures} signatures)"
                     );
                     self.impose_state.preview_page_count = page_count;
                     self.impose_state.preview_signatures_shown = Some(signatures_shown);
@@ -319,7 +316,7 @@ impl eframe::App for PdfToolsApp {
                     self.impose_state.stats = Some(stats);
                 }
                 PdfUpdate::Error { message } => {
-                    log::error!("Error: {}", message);
+                    log::error!("Error: {message}");
                     self.progress = None;
                 }
                 PdfUpdate::ViewerLoaded { doc_id, page_count } => {
@@ -344,11 +341,11 @@ impl eframe::App for PdfToolsApp {
                         Mode::Impose => {
                             self.impose_state.preview_viewer = Some(new_viewer_state.clone());
                         }
-                    };
+                    }
                     // First render at 100%; fit-to-window will adjust on next frame
                     let zoom_level = 1.0;
 
-                    log::info!("Loaded PDF with {} pages", page_count);
+                    log::info!("Loaded PDF with {page_count} pages");
                     self.progress = None;
 
                     // Request render of first page
@@ -486,10 +483,10 @@ impl eframe::App for PdfToolsApp {
                         .show_percentage(),
                     );
                     ctx.request_repaint(); // Keep updating during operations
-                } else if let Some(latest) = self.logger.latest_message() {
-                    if ui.link(&latest).clicked() {
-                        self.log_viewer_open = true;
-                    }
+                } else if let Some(latest) = self.logger.latest_message()
+                    && ui.link(&latest).clicked()
+                {
+                    self.log_viewer_open = true;
                 }
             });
         });

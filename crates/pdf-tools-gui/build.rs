@@ -47,7 +47,7 @@ fn main() {
             ("win", arch, "pdfium.dll")
         }
         _ => {
-            println!("cargo:warning=Unsupported target platform: {}", target);
+            println!("cargo:warning=Unsupported target platform: {target}");
             return;
         }
     };
@@ -74,10 +74,7 @@ fn main() {
         return;
     }
 
-    println!(
-        "cargo:warning=Downloading PDFium {} for {}-{}",
-        pdfium_version, platform, arch
-    );
+    println!("cargo:warning=Downloading PDFium {pdfium_version} for {platform}-{arch}");
 
     // Create directories
     fs::create_dir_all(&lib_dir).expect("Failed to create lib directory");
@@ -85,14 +82,13 @@ fn main() {
 
     // Download URL
     let download_url = format!(
-        "https://github.com/bblanchon/pdfium-binaries/releases/download/{}/pdfium-{}-{}.tgz",
-        pdfium_version, platform, arch
+        "https://github.com/bblanchon/pdfium-binaries/releases/download/{pdfium_version}/pdfium-{platform}-{arch}.tgz"
     );
 
     // Download and extract
     let temp_file = env::temp_dir().join("pdfium.tgz");
 
-    println!("cargo:warning=Downloading from {}", download_url);
+    println!("cargo:warning=Downloading from {download_url}");
     download_file(&download_url, &temp_file);
 
     println!("cargo:warning=Extracting to {}", pdfium_dir.display());
@@ -102,12 +98,11 @@ fn main() {
     let _ = fs::remove_file(&temp_file);
 
     // Verify installation
-    if !lib_path.exists() {
-        panic!(
-            "PDFium installation failed: {} not found",
-            lib_path.display()
-        );
-    }
+    assert!(
+        lib_path.exists(),
+        "PDFium installation failed: {} not found",
+        lib_path.display()
+    );
 
     println!(
         "cargo:warning=PDFium installed successfully to {}",
@@ -148,7 +143,7 @@ fn download_file(url: &str, dest: &Path) {
 
     let response = ureq::get(url)
         .call()
-        .unwrap_or_else(|e| panic!("Failed to download {}: {}", url, e));
+        .unwrap_or_else(|e| panic!("Failed to download {url}: {e}"));
 
     let mut file = fs::File::create(dest).expect("Failed to create temp file");
     std::io::copy(&mut response.into_reader(), &mut file).expect("Failed to write download");
@@ -191,7 +186,7 @@ fn fix_library_install_name(lib_path: &Path, platform: &str) {
             );
         }
         Err(e) => {
-            println!("cargo:warning=install_name_tool not available: {}", e);
+            println!("cargo:warning=install_name_tool not available: {e}");
         }
     }
 }

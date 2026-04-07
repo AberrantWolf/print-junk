@@ -45,8 +45,8 @@ fn test_folio_spread_positions() {
     let spreads = calculate_spread_positions(PageArrangement::Folio, leaf_bounds, &margins);
 
     assert_eq!(spreads.len(), 1);
-    assert_eq!(spreads[0].width, 800.0);
-    assert_eq!(spreads[0].height, 600.0);
+    assert!((spreads[0].width - 800.0).abs() < f32::EPSILON);
+    assert!((spreads[0].height - 600.0).abs() < f32::EPSILON);
     assert!(!spreads[0].rotated);
 }
 
@@ -60,8 +60,8 @@ fn test_quarto_spread_positions() {
     assert_eq!(spreads.len(), 2);
 
     // Both spreads have full width
-    assert_eq!(spreads[0].width, 800.0);
-    assert_eq!(spreads[1].width, 800.0);
+    assert!((spreads[0].width - 800.0).abs() < f32::EPSILON);
+    assert!((spreads[1].width - 800.0).abs() < f32::EPSILON);
 
     // Bottom spread is not rotated
     assert!(!spreads[0].rotated);

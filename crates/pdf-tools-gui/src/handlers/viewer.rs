@@ -49,19 +49,19 @@ pub async fn handle_load(
         }
         Ok(Err(e)) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to load PDF: {}", e),
+                message: format!("Failed to load PDF: {e}"),
             });
         }
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Task join error: {}", e),
+                message: format!("Task join error: {e}"),
             });
         }
     }
 }
 
 #[cfg(feature = "pdf-viewer")]
-pub async fn handle_load_bytes(
+pub fn handle_load_bytes(
     pdf_bytes: Vec<u8>,
     page_count: usize,
     state: &mut ViewerState,
@@ -97,7 +97,7 @@ pub async fn handle_render_page(
             page_width_pts: 0.0,
             page_height_pts: 0.0,
         });
-    } else if let Some(source) = state.get_document(&doc_id).cloned() {
+    } else if let Some(source) = state.get_document(doc_id).cloned() {
         // Not in cache, need to render
         match tokio::task::spawn_blocking(move || {
             let pdfium = init_pdfium()?;
@@ -110,7 +110,7 @@ pub async fn handle_render_page(
             let config = make_render_config(page_width_pts, page_height_pts, zoom_level);
 
             let bitmap = page.render_with_config(&config)?;
-            let rgba_data = bitmap.as_rgba_bytes().to_vec();
+            let rgba_data = bitmap.as_rgba_bytes().clone();
             let width = bitmap.width() as usize;
             let height = bitmap.height() as usize;
 
@@ -142,18 +142,18 @@ pub async fn handle_render_page(
             }
             Ok(Err(e)) => {
                 let _ = update_tx.send(PdfUpdate::Error {
-                    message: format!("Failed to render page: {}", e),
+                    message: format!("Failed to render page: {e}"),
                 });
             }
             Err(e) => {
                 let _ = update_tx.send(PdfUpdate::Error {
-                    message: format!("Task join error: {}", e),
+                    message: format!("Task join error: {e}"),
                 });
             }
         }
     } else {
         let _ = update_tx.send(PdfUpdate::Error {
-            message: format!("Document not found: {:?}", doc_id),
+            message: format!("Document not found: {doc_id:?}"),
         });
     }
 }
@@ -177,7 +177,7 @@ pub async fn handle_prefetch_pages(
             continue;
         }
 
-        if let Some(source) = state.get_document(&doc_id).cloned() {
+        if let Some(source) = state.get_document(doc_id).cloned() {
             // Render to cache silently (no UI update)
             match tokio::task::spawn_blocking(move || {
                 let pdfium = init_pdfium()?;
@@ -190,7 +190,7 @@ pub async fn handle_prefetch_pages(
                 let config = make_render_config(page_width_pts, page_height_pts, zoom_level);
 
                 let bitmap = page.render_with_config(&config)?;
-                let rgba_data = bitmap.as_rgba_bytes().to_vec();
+                let rgba_data = bitmap.as_rgba_bytes().clone();
                 let width = bitmap.width() as usize;
                 let height = bitmap.height() as usize;
 
@@ -207,13 +207,13 @@ pub async fn handle_prefetch_pages(
                             height,
                         },
                     );
-                    log::debug!("Prefetched page {} into cache", page_index);
+                    log::debug!("Prefetched page {page_index} into cache");
                 }
                 Ok(Err(e)) => {
-                    log::warn!("Failed to prefetch page {}: {}", page_index, e);
+                    log::warn!("Failed to prefetch page {page_index}: {e}");
                 }
                 Err(e) => {
-                    log::warn!("Prefetch task join error for page {}: {}", page_index, e);
+                    log::warn!("Prefetch task join error for page {page_index}: {e}");
                 }
             }
         }
@@ -221,7 +221,7 @@ pub async fn handle_prefetch_pages(
 }
 
 #[cfg(feature = "pdf-viewer")]
-pub async fn handle_close(
+pub fn handle_close(
     doc_id: DocumentId,
     state: &mut ViewerState,
     update_tx: &mpsc::UnboundedSender<PdfUpdate>,

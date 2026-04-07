@@ -10,7 +10,7 @@ use crate::layout::{
 };
 use crate::options::ImpositionOptions;
 use crate::render::get_page_dimensions;
-use crate::types::*;
+use crate::types::{PageArrangement, Result};
 use lopdf::{Document, Object, ObjectId};
 
 /// Impose using simple 2-up binding (perfect binding, side stitch, spiral)
@@ -48,7 +48,7 @@ pub(crate) fn impose_simple_binding(
     let mut page_refs = Vec::new();
 
     // Pad to even number of pages
-    let padded_count = (total_pages + 1) / 2 * 2;
+    let padded_count = total_pages.div_ceil(2) * 2;
 
     // Process pages in pairs (one spread per output page)
     for chunk_start in (0..padded_count).step_by(2) {

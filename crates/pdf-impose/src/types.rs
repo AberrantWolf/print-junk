@@ -69,7 +69,7 @@ impl Orientation {
 ///
 /// All dimensions are stored in portrait orientation (width < height).
 /// Use `dimensions_with_orientation` to get landscape dimensions.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum PaperSize {
     /// ISO A3 (297mm × 420mm)
     A3,
@@ -78,6 +78,7 @@ pub enum PaperSize {
     /// ISO A5 (148mm × 210mm)
     A5,
     /// US Letter (8.5" × 11")
+    #[default]
     Letter,
     /// US Legal (8.5" × 14")
     Legal,
@@ -85,12 +86,6 @@ pub enum PaperSize {
     Tabloid,
     /// Custom dimensions in millimeters
     Custom { width_mm: f32, height_mm: f32 },
-}
-
-impl Default for PaperSize {
-    fn default() -> Self {
-        PaperSize::Letter
-    }
 }
 
 impl PaperSize {
@@ -254,11 +249,10 @@ impl Rotation {
     /// Create from degrees (normalized to 0, 90, 180, 270)
     pub fn from_degrees(deg: i32) -> Self {
         match deg.rem_euclid(360) {
-            0 => Rotation::None,
             90 => Rotation::Clockwise90,
             180 => Rotation::Clockwise180,
             270 => Rotation::Clockwise270,
-            _ => Rotation::None, // Snap to nearest 90°
+            _ => Rotation::None, // 0 and snap non-90° to None
         }
     }
 }
@@ -477,7 +471,7 @@ pub enum Warning {
     },
     /// Kettle offset is too large for the spine length — sewing marks will be off-page
     KettleOffsetTooLarge { offset_mm: f32, max_mm: f32 },
-    /// Source page MediaBox could not be parsed; using default Letter dimensions
+    /// Source page `MediaBox` could not be parsed; using default Letter dimensions
     DefaultDimensionsUsed { page_index: usize },
     /// Flyleaves requested on a document with no pages (no effect)
     FlyleavesOnEmptyDocument,
@@ -529,7 +523,7 @@ pub struct ImpositionStatistics {
     pub signatures: Option<usize>,
     /// Pages per signature (if using signatures)
     pub pages_per_signature: Option<Vec<usize>>,
-    /// Total output page count (usually output_sheets × 2)
+    /// Total output page count (usually `output_sheets` × 2)
     pub output_pages: usize,
     /// Number of blank pages added for padding
     pub blank_pages_added: usize,

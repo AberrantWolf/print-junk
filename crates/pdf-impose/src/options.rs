@@ -2,7 +2,10 @@ use crate::constants::mm_to_pt;
 use crate::layout::Rect;
 use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
 use crate::layout::spread::calculate_spread_content;
-use crate::types::*;
+use crate::types::{
+    BindingType, ImposeError, Margins, Orientation, OutputFormat, PageArrangement, PaperSize,
+    PrinterMarks, Result, Rotation, ScalingMode, SewingConfig, SplitMode,
+};
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -76,7 +79,7 @@ impl Default for ImpositionOptions {
 }
 
 impl ImpositionOptions {
-    /// Total pages per signature (pages_per_sheet × sheets_per_signature)
+    /// Total pages per signature (`pages_per_sheet` × `sheets_per_signature`)
     pub fn pages_per_signature(&self) -> usize {
         self.page_arrangement.pages_per_sheet() * self.sheets_per_signature
     }
@@ -86,7 +89,7 @@ impl ImpositionOptions {
     pub async fn load(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let bytes = tokio::fs::read(path).await?;
         let options = serde_json::from_slice(&bytes)
-            .map_err(|e| ImposeError::Config(format!("Failed to parse config: {}", e)))?;
+            .map_err(|e| ImposeError::Config(format!("Failed to parse config: {e}")))?;
         Ok(options)
     }
 
@@ -94,7 +97,7 @@ impl ImpositionOptions {
     #[cfg(feature = "serde")]
     pub async fn save(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
         let json = serde_json::to_string_pretty(self)
-            .map_err(|e| ImposeError::Config(format!("Failed to serialize config: {}", e)))?;
+            .map_err(|e| ImposeError::Config(format!("Failed to serialize config: {e}")))?;
         tokio::fs::write(path, json).await?;
         Ok(())
     }
@@ -157,21 +160,16 @@ impl ImpositionOptions {
         }
 
         // Validate output format compatibility with binding type
-        match (self.binding_type, self.output_format) {
-            // Signature and case binding work with all output formats
-            (BindingType::Signature, _) | (BindingType::CaseBinding, _) => {}
-
-            // Perfect binding, side stitch, and spiral typically use double-sided or single-sided
+        if let (
+            BindingType::PerfectBinding | BindingType::SideStitch | BindingType::Spiral,
+            OutputFormat::TwoSided,
+        ) = (self.binding_type, self.output_format)
+        {
             // TwoSided (separate front/back PDFs) doesn't make sense for these bindings
-            (BindingType::PerfectBinding, OutputFormat::TwoSided)
-            | (BindingType::SideStitch, OutputFormat::TwoSided)
-            | (BindingType::Spiral, OutputFormat::TwoSided) => {
-                return Err(ImposeError::Config(format!(
-                    "{:?} binding does not support TwoSided output format. Use DoubleSided or SingleSidedSequence.",
-                    self.binding_type
-                )));
-            }
-            _ => {}
+            return Err(ImposeError::Config(format!(
+                "{:?} binding does not support TwoSided output format. Use DoubleSided or SingleSidedSequence.",
+                self.binding_type
+            )));
         }
 
         // Validate custom paper size minimum
@@ -179,12 +177,11 @@ impl ImpositionOptions {
             width_mm,
             height_mm,
         } = self.output_paper_size
+            && (width_mm < 10.0 || height_mm < 10.0)
         {
-            if width_mm < 10.0 || height_mm < 10.0 {
-                return Err(ImposeError::Config(
-                    "Custom paper size must be at least 10mm in each dimension".into(),
-                ));
-            }
+            return Err(ImposeError::Config(
+                "Custom paper size must be at least 10mm in each dimension".into(),
+            ));
         }
 
         // Validate that sheet margins don't consume all space
@@ -214,7 +211,9 @@ impl ImpositionOptions {
 
 #[cfg(feature = "serde")]
 mod serde_impls {
-    use super::*;
+    use super::{
+        BindingType, OutputFormat, PageArrangement, PaperSize, Rotation, ScalingMode, SplitMode,
+    };
     use serde::{Deserialize, Serialize};
 
     // Manual implementations for types that don't derive Serialize/Deserialize

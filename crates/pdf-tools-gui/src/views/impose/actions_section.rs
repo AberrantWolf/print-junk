@@ -58,7 +58,7 @@ fn save_configuration(state: &ImposeState) {
         let options = state.options.clone();
         tokio::spawn(async move {
             if let Err(e) = options.save(&path).await {
-                log::error!("Failed to save configuration: {}", e);
+                log::error!("Failed to save configuration: {e}");
             } else {
                 log::info!("Configuration saved to {}", path.display());
             }
@@ -95,18 +95,16 @@ fn show_generate_button(
     if ui
         .add_enabled(can_generate, egui::Button::new("💾 Save PDF..."))
         .clicked()
-    {
-        if let Some(path) = rfd::FileDialog::new()
+        && let Some(path) = rfd::FileDialog::new()
             .add_filter("PDF", &["pdf"])
             .set_file_name("imposed.pdf")
             .save_file()
-        {
-            log::info!("Saving imposed PDF to: {}", path.display());
-            let _ = command_tx.send(PdfCommand::ImposeGenerate {
-                options: state.options.clone(),
-                output_path: path,
-            });
-        }
+    {
+        log::info!("Saving imposed PDF to: {}", path.display());
+        let _ = command_tx.send(PdfCommand::ImposeGenerate {
+            options: state.options.clone(),
+            output_path: path,
+        });
     }
 }
 

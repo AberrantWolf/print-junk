@@ -86,7 +86,7 @@ fn test_scale_zero_target_dimensions() {
 // =============================================================================
 
 /// Within a single spread, verso and recto pages should have the same dimensions
-/// even when spine != fore_edge and top != bottom.
+/// even when spine != `fore_edge` and top != bottom.
 #[test]
 fn test_nonuniform_margins_verso_recto_same_size() {
     let spread_pos = SpreadPosition::empty(Point::new(0.0, 0.0), 600.0, 400.0, false, 0);
@@ -153,10 +153,7 @@ fn test_nonuniform_margins_quarto_spreads_same_page_size() {
     for (i, &w) in all_widths.iter().enumerate() {
         assert!(
             (w - first_width).abs() < 0.01,
-            "Quarto page {} width {} differs from first {}",
-            i,
-            w,
-            first_width
+            "Quarto page {i} width {w} differs from first {first_width}"
         );
     }
 
@@ -165,10 +162,7 @@ fn test_nonuniform_margins_quarto_spreads_same_page_size() {
     for (i, &h) in all_heights.iter().enumerate() {
         assert!(
             (h - first_height).abs() < 0.01,
-            "Quarto page {} height {} differs from first {}",
-            i,
-            h,
-            first_height
+            "Quarto page {i} height {h} differs from first {first_height}"
         );
     }
 }
@@ -200,10 +194,7 @@ fn test_nonuniform_margins_octavo_spreads_same_page_size() {
     for (i, &w) in all_widths.iter().enumerate() {
         assert!(
             (w - first_width).abs() < 0.01,
-            "Octavo page {} width {} differs from first {}",
-            i,
-            w,
-            first_width
+            "Octavo page {i} width {w} differs from first {first_width}"
         );
     }
 
@@ -211,10 +202,7 @@ fn test_nonuniform_margins_octavo_spreads_same_page_size() {
     for (i, &h) in all_heights.iter().enumerate() {
         assert!(
             (h - first_height).abs() < 0.01,
-            "Octavo page {} height {} differs from first {}",
-            i,
-            h,
-            first_height
+            "Octavo page {i} height {h} differs from first {first_height}"
         );
     }
 }
