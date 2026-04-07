@@ -77,10 +77,10 @@ fn test_stats_quarto_signature() {
     // 10 pages padded to 16 (2 signatures of 8 pages each)
     assert_eq!(stats.blank_pages_added, 6);
     assert_eq!(stats.signatures, Some(2));
-    // 16 pages / 4 pages per sheet = 4 sheets
-    assert_eq!(stats.output_sheets, 4);
-    // 4 sheets * 2 sides = 8 output pages
-    assert_eq!(stats.output_pages, 8);
+    // 2 signatures × 1 sheet per signature = 2 output sheets
+    assert_eq!(stats.output_sheets, 2);
+    // 2 sheets × 2 sides = 4 output pages
+    assert_eq!(stats.output_pages, 4);
 }
 
 #[test]
@@ -117,21 +117,20 @@ fn test_stats_octavo_signature() {
     // 20 pages padded to 32 (2 signatures of 16 pages each)
     assert_eq!(stats.blank_pages_added, 12);
     assert_eq!(stats.signatures, Some(2));
-    // 32 pages / 4 pages per sheet = 8 sheets
-    assert_eq!(stats.output_sheets, 8);
-    // 8 sheets * 2 sides = 16 output pages
-    assert_eq!(stats.output_pages, 16);
+    // 2 signatures × 1 sheet per signature = 2 output sheets
+    assert_eq!(stats.output_sheets, 2);
+    // 2 sheets × 2 sides = 4 output pages
+    assert_eq!(stats.output_pages, 4);
 }
 
 #[test]
-fn test_stats_custom_signature() {
+fn test_stats_multi_sheet_folio_signature() {
     let doc = create_test_document(15);
     let mut options = ImpositionOptions::default();
     options.input_files.push("test.pdf".into());
     options.binding_type = BindingType::Signature;
-    options.page_arrangement = PageArrangement::Custom {
-        pages_per_signature: 12,
-    };
+    options.page_arrangement = PageArrangement::Folio;
+    options.sheets_per_signature = 3; // 3 sheets × 4 pages = 12 pages per signature
 
     let stats = calculate_statistics(&[doc], &options).unwrap();
 
@@ -139,9 +138,9 @@ fn test_stats_custom_signature() {
     // 15 pages padded to 24 (2 signatures of 12 pages each)
     assert_eq!(stats.blank_pages_added, 9);
     assert_eq!(stats.signatures, Some(2));
-    // 24 pages / 4 pages per sheet = 6 sheets
+    // 2 signatures × 3 sheets = 6 sheets
     assert_eq!(stats.output_sheets, 6);
-    // 6 sheets * 2 sides = 12 output pages
+    // 6 sheets × 2 sides = 12 output pages
     assert_eq!(stats.output_pages, 12);
 }
 
@@ -182,8 +181,9 @@ fn test_stats_with_flyleaves() {
     // 18 pages padded to 24 (3 signatures of 8 pages each)
     assert_eq!(stats.blank_pages_added, 6);
     assert_eq!(stats.signatures, Some(3));
-    assert_eq!(stats.output_sheets, 6); // 3 signatures * 2 sheets per signature
-    assert_eq!(stats.output_pages, 12); // 6 sheets * 2 sides
+    // 3 signatures × 1 sheet per signature = 3 output sheets
+    assert_eq!(stats.output_sheets, 3);
+    assert_eq!(stats.output_pages, 6); // 3 sheets × 2 sides
 }
 
 #[test]
@@ -200,8 +200,9 @@ fn test_stats_exact_signature_fit() {
     // Perfect fit, no padding needed
     assert_eq!(stats.blank_pages_added, 0);
     assert_eq!(stats.signatures, Some(1));
-    assert_eq!(stats.output_sheets, 4);
-    assert_eq!(stats.output_pages, 8);
+    // 1 signature × 1 sheet = 1 output sheet
+    assert_eq!(stats.output_sheets, 1);
+    assert_eq!(stats.output_pages, 2);
 }
 
 #[test]

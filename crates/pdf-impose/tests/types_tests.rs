@@ -28,17 +28,10 @@ fn test_paper_size_dimensions() {
 }
 
 #[test]
-fn test_page_arrangement_pages_per_signature() {
-    assert_eq!(PageArrangement::Folio.pages_per_signature(), 4);
-    assert_eq!(PageArrangement::Quarto.pages_per_signature(), 8);
-    assert_eq!(PageArrangement::Octavo.pages_per_signature(), 16);
-    assert_eq!(
-        PageArrangement::Custom {
-            pages_per_signature: 12
-        }
-        .pages_per_signature(),
-        12
-    );
+fn test_page_arrangement_pages_per_sheet() {
+    assert_eq!(PageArrangement::Folio.pages_per_sheet(), 4);
+    assert_eq!(PageArrangement::Quarto.pages_per_sheet(), 8);
+    assert_eq!(PageArrangement::Octavo.pages_per_sheet(), 16);
 }
 
 #[test]

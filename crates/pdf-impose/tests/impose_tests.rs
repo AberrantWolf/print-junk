@@ -245,20 +245,19 @@ async fn test_impose_octavo() {
 }
 
 #[tokio::test]
-async fn test_impose_with_custom_arrangement() {
+async fn test_impose_with_multi_sheet_folio() {
     let doc = create_test_pdf(12);
     let mut options = ImpositionOptions::default();
     options.input_files.push(PathBuf::from("test.pdf"));
-    options.page_arrangement = PageArrangement::Custom {
-        pages_per_signature: 12,
-    };
+    options.page_arrangement = PageArrangement::Folio;
+    options.sheets_per_signature = 3; // 3 sheets × 4 pages = 12 pages per signature
 
     let result = impose(&[doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
-    // Custom: 12 pages per signature = 1 signature = 1 sheet with 6 pages per side = 2 output pages
-    assert_eq!(output.get_pages().len(), 2);
+    // 1 signature × 3 sheets × 2 sides = 6 output pages
+    assert_eq!(output.get_pages().len(), 6);
 }
 
 #[tokio::test]
@@ -350,7 +349,8 @@ fn test_folio_page_order() {
     use pdf_impose::PageArrangement;
     use pdf_impose::layout::assign_pages_to_spreads;
 
-    let assignment = assign_pages_to_spreads(PageArrangement::Folio, 0, 4);
+    let sheets = assign_pages_to_spreads(PageArrangement::Folio, 1, 0, 4);
+    let assignment = &sheets[0];
 
     // Front side: 1 spread [verso=4, recto=1]
     assert_eq!(assignment.front.len(), 1);
@@ -369,7 +369,8 @@ fn test_quarto_page_order() {
     use pdf_impose::PageArrangement;
     use pdf_impose::layout::assign_pages_to_spreads;
 
-    let assignment = assign_pages_to_spreads(PageArrangement::Quarto, 0, 8);
+    let sheets = assign_pages_to_spreads(PageArrangement::Quarto, 1, 0, 8);
+    let assignment = &sheets[0];
 
     // Front side: 2 spreads [bottom, top]
     assert_eq!(assignment.front.len(), 2);
@@ -396,7 +397,8 @@ fn test_octavo_page_order() {
     use pdf_impose::PageArrangement;
     use pdf_impose::layout::assign_pages_to_spreads;
 
-    let assignment = assign_pages_to_spreads(PageArrangement::Octavo, 0, 16);
+    let sheets = assign_pages_to_spreads(PageArrangement::Octavo, 1, 0, 16);
+    let assignment = &sheets[0];
 
     // Front side: 4 spreads [bottom-left, bottom-right, top-left, top-right]
     assert_eq!(assignment.front.len(), 4);
@@ -436,15 +438,15 @@ fn test_multiple_signatures() {
     use pdf_impose::layout::assign_pages_to_spreads;
 
     // First signature (pages 1-8)
-    let sig1 = assign_pages_to_spreads(PageArrangement::Quarto, 0, 16);
+    let sig1 = assign_pages_to_spreads(PageArrangement::Quarto, 1, 0, 16);
     // Second signature (pages 9-16)
-    let sig2 = assign_pages_to_spreads(PageArrangement::Quarto, 8, 16);
+    let sig2 = assign_pages_to_spreads(PageArrangement::Quarto, 1, 8, 16);
 
     // First signature front, bottom spread: [verso=8, recto=1]
-    assert_eq!(sig1.front[0].verso_page, Some(7)); // page 8
-    assert_eq!(sig1.front[0].recto_page, Some(0)); // page 1
+    assert_eq!(sig1[0].front[0].verso_page, Some(7)); // page 8
+    assert_eq!(sig1[0].front[0].recto_page, Some(0)); // page 1
 
     // Second signature front, bottom spread: [verso=16, recto=9]
-    assert_eq!(sig2.front[0].verso_page, Some(15)); // page 16
-    assert_eq!(sig2.front[0].recto_page, Some(8)); // page 9
+    assert_eq!(sig2[0].front[0].verso_page, Some(15)); // page 16
+    assert_eq!(sig2[0].front[0].recto_page, Some(8)); // page 9
 }
