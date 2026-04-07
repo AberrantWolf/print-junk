@@ -80,21 +80,17 @@ enum Commands {
         #[arg(long, default_value = "0")]
         back_flyleaves: usize,
 
-        /// Add fold lines
+        /// Add fold lines (including spine fold)
         #[arg(long)]
         fold_lines: bool,
 
-        /// Add cut lines
+        /// Add trim marks (guillotine guides at inter-spread fold edges)
         #[arg(long)]
-        cut_lines: bool,
+        trim_marks: bool,
 
         /// Add crop marks (at sheet edges)
         #[arg(long)]
         crop_marks: bool,
-
-        /// Add trim marks (at each leaf boundary)
-        #[arg(long)]
-        trim_marks: bool,
 
         /// Add registration marks
         #[arg(long)]
@@ -136,9 +132,9 @@ enum Commands {
         #[arg(long, default_value = "0.0")]
         leaf_bottom_margin: f32,
 
-        /// Leaf cut margin in mm (space around cut lines)
-        #[arg(long, default_value = "0.0")]
-        leaf_cut_margin: f32,
+        /// Trim allowance in mm (extra material around fold edges, trimmed after binding)
+        #[arg(long, default_value = "3.0")]
+        trim_allowance: f32,
 
         /// Show statistics only, don't generate PDF
         #[arg(long)]
@@ -299,9 +295,8 @@ async fn main() -> Result<()> {
             front_flyleaves,
             back_flyleaves,
             fold_lines,
-            cut_lines,
-            crop_marks,
             trim_marks,
+            crop_marks,
             registration_marks,
             sewing_marks,
             collation_marks,
@@ -312,7 +307,7 @@ async fn main() -> Result<()> {
             leaf_fore_edge_margin,
             leaf_top_margin,
             leaf_bottom_margin,
-            leaf_cut_margin,
+            trim_allowance,
             stats_only,
         } => {
             let options = pdf_impose::ImpositionOptions {
@@ -332,14 +327,13 @@ async fn main() -> Result<()> {
                         bottom_mm: leaf_bottom_margin,
                         fore_edge_mm: leaf_fore_edge_margin,
                         spine_mm: leaf_spine_margin,
-                        cut_mm: leaf_cut_margin,
+                        trim_allowance_mm: trim_allowance,
                     },
                 },
                 marks: pdf_impose::PrinterMarks {
                     fold_lines,
-                    cut_lines,
-                    crop_marks,
                     trim_marks,
+                    crop_marks,
                     registration_marks,
                     sewing_marks,
                     collation_marks,

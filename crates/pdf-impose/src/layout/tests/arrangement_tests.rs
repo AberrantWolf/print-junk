@@ -6,7 +6,7 @@ fn default_margins() -> LeafMargins {
         bottom_mm: 10.0,
         fore_edge_mm: 15.0,
         spine_mm: 20.0,
-        cut_mm: 5.0,
+        trim_allowance_mm: 5.0,
     }
 }
 
@@ -69,7 +69,7 @@ fn test_quarto_spread_positions() {
     assert!(spreads[1].rotated);
 
     // Check heights account for cut gap
-    let cut_gap = mm_to_pt(margins.cut_mm);
+    let cut_gap = mm_to_pt(margins.trim_allowance_mm);
     let expected_height = (600.0 - cut_gap) / 2.0;
     assert!((spreads[0].height - expected_height).abs() < 0.1);
     assert!((spreads[1].height - expected_height).abs() < 0.1);

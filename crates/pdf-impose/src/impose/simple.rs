@@ -4,7 +4,6 @@
 //! This uses the folio spread layout.
 
 use super::sheet::render_sheet_spreads;
-use super::{calculate_leaf_bounds, sheet_dimensions_pt};
 use super::signature::finalize_document;
 use crate::layout::{
     SheetSide, Spread, SpreadCutEdges, SpreadSheetLayout, calculate_spread_positions,
@@ -33,8 +32,8 @@ pub(crate) fn impose_simple_binding(
         .collect();
 
     // Calculate output dimensions and leaf area
-    let (output_width_pt, output_height_pt) = sheet_dimensions_pt(options);
-    let leaf_bounds = calculate_leaf_bounds(options, output_width_pt, output_height_pt);
+    let (output_width_pt, output_height_pt) = options.sheet_dimensions_pt();
+    let leaf_bounds = options.leaf_bounds_pt();
 
     // Simple 2-up uses folio layout (1 spread per sheet side)
     let spread_positions =

@@ -48,16 +48,21 @@ pub fn calculate_spread_content(
     let fore_edge_pt = mm_to_pt(margins.fore_edge_mm);
     let top_pt = mm_to_pt(margins.top_mm);
     let bottom_pt = mm_to_pt(margins.bottom_mm);
-    let cut_pt = mm_to_pt(margins.cut_mm);
+    let cut_pt = mm_to_pt(margins.trim_allowance_mm);
 
     // Calculate horizontal margins for each page
     // Verso (left page): fore-edge on left, spine on right
     // Recto (right page): spine on left, fore-edge on right
-    // Cut margin is additive (like vertical margins) so pages stay the same size
-    let verso_left = fore_edge_pt + if cut_edges.left { cut_pt } else { 0.0 };
+    //
+    // When a spread has a vertical cut on either side (octavo), apply cut margin
+    // to BOTH pages' fore-edges so all pages end up the same width. Without this,
+    // the page adjacent to the cut would be narrower, causing uneven content scaling
+    // across the finished book.
+    let has_vertical_cut = cut_edges.left || cut_edges.right;
+    let verso_left = fore_edge_pt + if has_vertical_cut { cut_pt } else { 0.0 };
     let verso_right = spine_pt;
     let recto_left = spine_pt;
-    let recto_right = fore_edge_pt + if cut_edges.right { cut_pt } else { 0.0 };
+    let recto_right = fore_edge_pt + if has_vertical_cut { cut_pt } else { 0.0 };
 
     // Calculate vertical margins (add cut margin where there are cuts)
     let top_margin = top_pt + if cut_edges.top { cut_pt } else { 0.0 };

@@ -155,16 +155,15 @@ async fn create_test_output(
             bottom_mm: 5.0,
             fore_edge_mm: 3.0,
             spine_mm: 7.0,
-            cut_mm: 0.0,
+            trim_allowance_mm: 0.0,
         },
     };
     // Enable printer's marks
     options.marks = PrinterMarks {
         fold_lines: true,
-        cut_lines: true,
+        trim_marks: true,
         crop_marks: true,
         registration_marks: true,
-        trim_marks: false,
         sewing_marks: false,
         collation_marks: false,
     };

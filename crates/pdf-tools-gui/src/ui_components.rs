@@ -156,6 +156,28 @@ where
     .inner
 }
 
+/// Helper for labeled drag values with range, suffix, and tooltip
+pub fn labeled_drag_clamped_with_tooltip<T>(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    suffix: &str,
+    tooltip: &str,
+) -> bool
+where
+    T: egui::emath::Numeric,
+{
+    ui.horizontal(|ui| {
+        ui.label(label).on_hover_text(tooltip);
+        DragValueBuilder::new(value)
+            .range(range)
+            .suffix(suffix)
+            .show(ui)
+    })
+    .inner
+}
+
 /// Enum selector using ComboBox
 pub fn enum_selector<T>(
     ui: &mut egui::Ui,
@@ -246,7 +268,12 @@ impl<'a> FileListEditor<'a> {
                     to_move_down = Some(idx);
                 }
 
-                ui.label(format!("{}. {}", idx + 1, path.display()));
+                let file_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.display().to_string());
+                ui.label(format!("{}. {}", idx + 1, file_name))
+                    .on_hover_text(path.display().to_string());
 
                 if ui.small_button("✖").clicked() {
                     to_remove = Some(idx);
@@ -394,11 +421,26 @@ impl<'a> LeafMarginsEditor<'a> {
     pub fn show(self, ui: &mut egui::Ui) -> bool {
         let mut changed = false;
 
-        changed |= labeled_drag_clamped(ui, "Top (head):", self.top, 0.0..=self.max, " mm");
-        changed |= labeled_drag_clamped(ui, "Bottom (tail):", self.bottom, 0.0..=self.max, " mm");
-        changed |= labeled_drag_clamped(ui, "Fore edge:", self.fore_edge, 0.0..=self.max, " mm");
-        changed |= labeled_drag_clamped(ui, "Spine (gutter):", self.spine, 0.0..=self.max, " mm");
-        changed |= labeled_drag_clamped(ui, "Cut:", self.cut, 0.0..=self.max, " mm");
+        changed |= labeled_drag_clamped_with_tooltip(
+            ui, "Top (head):", self.top, 0.0..=self.max, " mm",
+            "Margin at the top (head) of the page",
+        );
+        changed |= labeled_drag_clamped_with_tooltip(
+            ui, "Bottom (tail):", self.bottom, 0.0..=self.max, " mm",
+            "Margin at the bottom (tail/foot) of the page",
+        );
+        changed |= labeled_drag_clamped_with_tooltip(
+            ui, "Fore edge:", self.fore_edge, 0.0..=self.max, " mm",
+            "Margin on the side opposite the spine",
+        );
+        changed |= labeled_drag_clamped_with_tooltip(
+            ui, "Spine (gutter):", self.spine, 0.0..=self.max, " mm",
+            "Margin at the spine where pages are bound together",
+        );
+        changed |= labeled_drag_clamped_with_tooltip(
+            ui, "Trim allowance:", self.cut, 0.0..=self.max, " mm",
+            "Extra material around fold edges, trimmed away after binding (3mm standard)",
+        );
 
         changed
     }

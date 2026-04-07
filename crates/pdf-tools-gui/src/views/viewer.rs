@@ -102,6 +102,27 @@ fn zoom_step_down(current: f32) -> f32 {
     }
 }
 
+/// Navigate the viewer to a specific page and send a render command.
+fn navigate_to_page(
+    state: &mut ViewerState,
+    page: usize,
+    command_tx: &mpsc::UnboundedSender<PdfCommand>,
+) {
+    let page = page.min(state.total_pages.saturating_sub(1));
+    if page == state.current_page {
+        return;
+    }
+    state.current_page = page;
+    if let Some(doc_id) = state.current_doc_id {
+        let _ = command_tx.send(PdfCommand::ViewerRenderPage {
+            doc_id,
+            page_index: state.current_page,
+            zoom_level: state.zoom_fraction(),
+        });
+        log::info!("Rendering page {}...", state.current_page + 1);
+    }
+}
+
 pub fn show_viewer(
     ui: &mut egui::Ui,
     viewer_state: &mut Option<ViewerState>,
@@ -117,15 +138,7 @@ pub fn show_viewer(
                 .add_enabled(can_go_back, egui::Button::new("◀ Previous"))
                 .clicked()
             {
-                state.current_page -= 1;
-                if let Some(doc_id) = state.current_doc_id {
-                    let _ = command_tx.send(PdfCommand::ViewerRenderPage {
-                        doc_id,
-                        page_index: state.current_page,
-                        zoom_level: state.zoom_fraction(),
-                    });
-                    log::info!("Rendering page {}...", state.current_page + 1);
-                }
+                navigate_to_page(state, state.current_page.saturating_sub(1), command_tx);
             }
 
             ui.label(format!(
@@ -138,25 +151,18 @@ pub fn show_viewer(
                 .add_enabled(can_go_forward, egui::Button::new("Next ▶"))
                 .clicked()
             {
-                state.current_page += 1;
-                if let Some(doc_id) = state.current_doc_id {
-                    let _ = command_tx.send(PdfCommand::ViewerRenderPage {
-                        doc_id,
-                        page_index: state.current_page,
-                        zoom_level: state.zoom_fraction(),
-                    });
-                    log::info!("Rendering page {}...", state.current_page + 1);
-                }
+                navigate_to_page(state, state.current_page + 1, command_tx);
             }
 
-            ui.separator();
-
+            // Close button pushed to the right, away from navigation
             if state.show_close_button {
-                if ui.button("Close PDF").clicked() {
-                    if let Some(doc_id) = state.current_doc_id {
-                        let _ = command_tx.send(PdfCommand::ViewerClose { doc_id });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close PDF").clicked() {
+                        if let Some(doc_id) = state.current_doc_id {
+                            let _ = command_tx.send(PdfCommand::ViewerClose { doc_id });
+                        }
                     }
-                }
+                });
             }
         });
 
@@ -315,6 +321,31 @@ pub fn show_viewer(
                             zoom.compute_scroll_for_zoom(old_pct, zoom.zoom_percent, viewport_anchor),
                         );
                     }
+                }
+            }
+        }
+
+        // Handle page navigation keyboard shortcuts
+        {
+            let cmd_held = ui.input(|i| i.modifiers.command);
+            if !cmd_held {
+                let prev = ui.input(|i| {
+                    i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::PageUp)
+                });
+                let next = ui.input(|i| {
+                    i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::PageDown)
+                });
+                let first = ui.input(|i| i.key_pressed(egui::Key::Home));
+                let last = ui.input(|i| i.key_pressed(egui::Key::End));
+
+                if first {
+                    navigate_to_page(state, 0, command_tx);
+                } else if last {
+                    navigate_to_page(state, state.total_pages.saturating_sub(1), command_tx);
+                } else if prev {
+                    navigate_to_page(state, state.current_page.saturating_sub(1), command_tx);
+                } else if next {
+                    navigate_to_page(state, state.current_page + 1, command_tx);
                 }
             }
         }

@@ -48,6 +48,9 @@ fn calculate_scale(
     if target_width <= 0.0 || target_height <= 0.0 {
         return 1.0;
     }
+    if src_width <= 0.0 || src_height <= 0.0 {
+        return 1.0;
+    }
 
     let scale_w = target_width / src_width;
     let scale_h = target_height / src_height;
