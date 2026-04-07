@@ -5,7 +5,7 @@
 use crate::impose::impose;
 use crate::options::ImpositionOptions;
 use crate::render::copy_object_deep;
-use crate::types::*;
+use crate::types::{ImposeError, Result};
 use lopdf::{Dictionary, Document, Object};
 use std::collections::HashMap;
 
@@ -19,7 +19,7 @@ pub struct PreviewResult {
 
 /// Maximum output sheets to render in a preview.
 ///
-/// The actual signature limit is derived from this based on sheets_per_signature,
+/// The actual signature limit is derived from this based on `sheets_per_signature`,
 /// so simpler arrangements (folio) show more signatures than complex ones (octavo).
 const MAX_PREVIEW_SHEETS: usize = 16;
 
@@ -38,7 +38,7 @@ pub async fn generate_preview(
         let pages_per_sig = options.pages_per_signature();
         let effective_max = max_signatures
             .unwrap_or_else(|| (MAX_PREVIEW_SHEETS / options.sheets_per_signature).max(1));
-        let total_sigs = (total_source_pages + pages_per_sig - 1) / pages_per_sig;
+        let total_sigs = total_source_pages.div_ceil(pages_per_sig);
         let sigs = total_sigs.min(effective_max);
         (sigs * pages_per_sig, sigs)
     } else {
@@ -139,7 +139,7 @@ fn copy_page_object(
         }
         Object::Dictionary(dict) => {
             let mut new_dict = Dictionary::new();
-            for (key, value) in dict.iter() {
+            for (key, value) in dict {
                 // Skip "Parent" to avoid circular reference (Page → Pages tree → Kids → Page)
                 // The page will get a new parent when added to the destination pages tree.
                 if key == b"Parent" {
@@ -152,7 +152,7 @@ fn copy_page_object(
         }
         Object::Stream(stream) => {
             let mut new_dict = Dictionary::new();
-            for (key, value) in stream.dict.iter() {
+            for (key, value) in &stream.dict {
                 let new_value = copy_value_for_page(dest, source, value, cache)?;
                 new_dict.set(key.clone(), new_value);
             }

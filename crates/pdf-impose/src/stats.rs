@@ -4,7 +4,7 @@
 
 use crate::constants::PAGES_PER_LEAF;
 use crate::options::ImpositionOptions;
-use crate::types::*;
+use crate::types::{ImposeError, ImpositionStatistics, Result, Warning};
 use lopdf::Document;
 
 /// Calculate statistics for the imposition
@@ -32,9 +32,9 @@ pub fn calculate_statistics(
     );
 
     if options.binding_type.uses_signatures() {
-        calculate_signature_stats(source_pages, options)
+        Ok(calculate_signature_stats(source_pages, options))
     } else {
-        calculate_simple_stats(source_pages)
+        Ok(calculate_simple_stats(source_pages))
     }
 }
 
@@ -42,7 +42,7 @@ pub fn calculate_statistics(
 fn calculate_signature_stats(
     source_pages: usize,
     options: &ImpositionOptions,
-) -> Result<ImpositionStatistics> {
+) -> ImpositionStatistics {
     let pages_per_sig = options.pages_per_signature();
     let sheets_per_sig = options.sheets_per_signature;
 
@@ -58,7 +58,7 @@ fn calculate_signature_stats(
 
     let warnings = blank_padding_warnings(blank_pages_added, padded_count);
 
-    Ok(ImpositionStatistics {
+    ImpositionStatistics {
         source_pages,
         output_sheets: total_sheets,
         signatures: Some(num_signatures),
@@ -66,11 +66,11 @@ fn calculate_signature_stats(
         output_pages,
         blank_pages_added,
         warnings,
-    })
+    }
 }
 
 /// Calculate statistics for simple 2-up binding
-fn calculate_simple_stats(source_pages: usize) -> Result<ImpositionStatistics> {
+fn calculate_simple_stats(source_pages: usize) -> ImpositionStatistics {
     // Perfect binding, side stitch, spiral: 2 pages per sheet
     let padded_count = round_up_to_multiple(source_pages, 2);
     let blank_pages_added = padded_count - source_pages;
@@ -80,7 +80,7 @@ fn calculate_simple_stats(source_pages: usize) -> Result<ImpositionStatistics> {
 
     let warnings = blank_padding_warnings(blank_pages_added, padded_count);
 
-    Ok(ImpositionStatistics {
+    ImpositionStatistics {
         source_pages,
         output_sheets: total_sheets,
         signatures: None,
@@ -88,7 +88,7 @@ fn calculate_simple_stats(source_pages: usize) -> Result<ImpositionStatistics> {
         output_pages,
         blank_pages_added,
         warnings,
-    })
+    }
 }
 
 /// Generate warnings if blank page padding exceeds 25% of total capacity
@@ -109,5 +109,5 @@ fn blank_padding_warnings(blank_pages_added: usize, padded_count: usize) -> Vec<
 
 /// Round up to the nearest multiple
 fn round_up_to_multiple(value: usize, multiple: usize) -> usize {
-    ((value + multiple - 1) / multiple) * multiple
+    value.div_ceil(multiple) * multiple
 }

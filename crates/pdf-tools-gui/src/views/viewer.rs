@@ -15,11 +15,11 @@ pub struct ZoomState {
     pub rendered_zoom: Option<u32>,
     /// Native page dimensions in PDF points (set after first render)
     pub page_native_size: Option<(f32, f32)>,
-    /// Last known scroll offset (updated each frame from ScrollArea output)
+    /// Last known scroll offset (updated each frame from `ScrollArea` output)
     last_scroll_offset: egui::Vec2,
-    /// Last known viewport size (updated each frame from ScrollArea output)
+    /// Last known viewport size (updated each frame from `ScrollArea` output)
     last_viewport_size: egui::Vec2,
-    /// Override scroll offset for the next frame (set on zoom change, consumed by ScrollArea)
+    /// Override scroll offset for the next frame (set on zoom change, consumed by `ScrollArea`)
     scroll_offset_override: Option<egui::Vec2>,
 }
 
@@ -40,7 +40,7 @@ impl Default for ZoomState {
 impl ZoomState {
     /// Compute a scroll offset that preserves the viewport center when zoom changes.
     /// `anchor_offset` is the point in viewport coordinates to keep stable
-    /// (e.g. viewport_size/2 for center, or cursor position for scroll-zoom).
+    /// (e.g. `viewport_size/2` for center, or cursor position for scroll-zoom).
     fn compute_scroll_for_zoom(
         &self,
         old_zoom: f32,
@@ -162,10 +162,10 @@ pub fn show_viewer(
             // Close button pushed to the right, away from navigation
             if state.show_close_button {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close PDF").clicked() {
-                        if let Some(doc_id) = state.current_doc_id {
-                            let _ = command_tx.send(PdfCommand::ViewerClose { doc_id });
-                        }
+                    if ui.button("Close PDF").clicked()
+                        && let Some(doc_id) = state.current_doc_id
+                    {
+                        let _ = command_tx.send(PdfCommand::ViewerClose { doc_id });
                     }
                 });
             }
@@ -173,7 +173,7 @@ pub fn show_viewer(
 
         // Show zoom toolbar if zoom is enabled
         let mut zoom_changed = false;
-        let old_zoom_percent = state.zoom.as_ref().map(|z| z.zoom_percent).unwrap_or(100.0);
+        let old_zoom_percent = state.zoom.as_ref().map_or(100.0, |z| z.zoom_percent);
         if let Some(zoom) = &mut state.zoom {
             ui.horizontal(|ui| {
                 // Fit to window button
@@ -238,20 +238,21 @@ pub fn show_viewer(
         ui.separator();
 
         // Compute fit-to-window zoom before rendering the scroll area
-        if let Some(zoom) = &mut state.zoom {
-            if zoom.fit_to_window {
-                let available = ui.available_size();
-                if let Some((pw, ph)) = zoom.page_native_size {
-                    if pw > 0.0 && ph > 0.0 {
-                        let zoom_w = available.x / pw;
-                        let zoom_h = available.y / ph;
-                        let fit_percent = zoom_w.min(zoom_h) * 100.0;
-                        let fit_percent = fit_percent.clamp(25.0, 400.0);
-                        if (fit_percent - zoom.zoom_percent).abs() > 1.0 {
-                            zoom.zoom_percent = fit_percent;
-                            zoom_changed = true;
-                        }
-                    }
+        if let Some(zoom) = &mut state.zoom
+            && zoom.fit_to_window
+        {
+            let available = ui.available_size();
+            if let Some((pw, ph)) = zoom.page_native_size
+                && pw > 0.0
+                && ph > 0.0
+            {
+                let zoom_w = available.x / pw;
+                let zoom_h = available.y / ph;
+                let fit_percent = zoom_w.min(zoom_h) * 100.0;
+                let fit_percent = fit_percent.clamp(25.0, 400.0);
+                if (fit_percent - zoom.zoom_percent).abs() > 1.0 {
+                    zoom.zoom_percent = fit_percent;
+                    zoom_changed = true;
                 }
             }
         }
@@ -298,29 +299,29 @@ pub fn show_viewer(
                     None
                 }
             });
-            if let Some((delta, pointer_pos)) = scroll_zoom {
-                if let Some(zoom) = &mut state.zoom {
-                    let old_pct = zoom.zoom_percent;
-                    // Scale zoom by scroll delta (positive = zoom in)
-                    let change = delta * 0.5; // sensitivity
-                    zoom.zoom_percent = (zoom.zoom_percent + change).clamp(25.0, 400.0);
-                    zoom.fit_to_window = false;
-                    zoom_changed = true;
+            if let Some((delta, pointer_pos)) = scroll_zoom
+                && let Some(zoom) = &mut state.zoom
+            {
+                let old_pct = zoom.zoom_percent;
+                // Scale zoom by scroll delta (positive = zoom in)
+                let change = delta * 0.5; // sensitivity
+                zoom.zoom_percent = (zoom.zoom_percent + change).clamp(25.0, 400.0);
+                zoom.fit_to_window = false;
+                zoom_changed = true;
 
-                    // Anchor zoom on cursor position if available
-                    if let Some(pos) = pointer_pos {
-                        // Convert screen position to viewport-relative position
-                        // by subtracting the scroll area's top-left (approximated by
-                        // current ui clip rect min, which is close enough)
-                        let viewport_anchor = pos - ui.clip_rect().min;
-                        let viewport_anchor =
-                            egui::vec2(viewport_anchor.x.max(0.0), viewport_anchor.y.max(0.0));
-                        zoom.scroll_offset_override = Some(zoom.compute_scroll_for_zoom(
-                            old_pct,
-                            zoom.zoom_percent,
-                            viewport_anchor,
-                        ));
-                    }
+                // Anchor zoom on cursor position if available
+                if let Some(pos) = pointer_pos {
+                    // Convert screen position to viewport-relative position
+                    // by subtracting the scroll area's top-left (approximated by
+                    // current ui clip rect min, which is close enough)
+                    let viewport_anchor = pos - ui.clip_rect().min;
+                    let viewport_anchor =
+                        egui::vec2(viewport_anchor.x.max(0.0), viewport_anchor.y.max(0.0));
+                    zoom.scroll_offset_override = Some(zoom.compute_scroll_for_zoom(
+                        old_pct,
+                        zoom.zoom_percent,
+                        viewport_anchor,
+                    ));
                 }
             }
         }
@@ -352,31 +353,29 @@ pub fn show_viewer(
 
         // Compute scroll position preservation when zoom changes.
         // Skip if Ctrl+scroll already set a cursor-anchored override.
-        if zoom_changed {
-            if let Some(zoom) = &mut state.zoom {
-                if zoom.scroll_offset_override.is_none() {
-                    let new_zoom = zoom.zoom_percent;
-                    if (new_zoom - old_zoom_percent).abs() > 0.1 {
-                        // For button/keyboard zoom, anchor on viewport center
-                        let anchor = zoom.last_viewport_size * 0.5;
-                        zoom.scroll_offset_override =
-                            Some(zoom.compute_scroll_for_zoom(old_zoom_percent, new_zoom, anchor));
-                    }
-                }
+        if zoom_changed
+            && let Some(zoom) = &mut state.zoom
+            && zoom.scroll_offset_override.is_none()
+        {
+            let new_zoom = zoom.zoom_percent;
+            if (new_zoom - old_zoom_percent).abs() > 0.1 {
+                // For button/keyboard zoom, anchor on viewport center
+                let anchor = zoom.last_viewport_size * 0.5;
+                zoom.scroll_offset_override =
+                    Some(zoom.compute_scroll_for_zoom(old_zoom_percent, new_zoom, anchor));
             }
         }
 
         // Send render command if zoom changed and quantized level differs
-        if zoom_changed {
-            if let (Some(doc_id), Some(zoom)) = (state.current_doc_id, &mut state.zoom) {
-                let new_quantized = quantize_zoom(zoom.zoom_percent / 100.0);
-                if zoom.rendered_zoom != Some(new_quantized) {
-                    let _ = command_tx.send(PdfCommand::ViewerRenderPage {
-                        doc_id,
-                        page_index: state.current_page,
-                        zoom_level: zoom.zoom_percent / 100.0,
-                    });
-                }
+        if zoom_changed && let (Some(doc_id), Some(zoom)) = (state.current_doc_id, &mut state.zoom)
+        {
+            let new_quantized = quantize_zoom(zoom.zoom_percent / 100.0);
+            if zoom.rendered_zoom != Some(new_quantized) {
+                let _ = command_tx.send(PdfCommand::ViewerRenderPage {
+                    doc_id,
+                    page_index: state.current_page,
+                    zoom_level: zoom.zoom_percent / 100.0,
+                });
             }
         }
 
@@ -396,12 +395,12 @@ pub fn show_viewer(
 
             // Apply scroll offset override if a zoom change requested it
             let mut scroll_area = egui::ScrollArea::both();
-            if let Some(zoom) = &mut state.zoom {
-                if let Some(offset) = zoom.scroll_offset_override.take() {
-                    scroll_area = scroll_area
-                        .horizontal_scroll_offset(offset.x)
-                        .vertical_scroll_offset(offset.y);
-                }
+            if let Some(zoom) = &mut state.zoom
+                && let Some(offset) = zoom.scroll_offset_override.take()
+            {
+                scroll_area = scroll_area
+                    .horizontal_scroll_offset(offset.x)
+                    .vertical_scroll_offset(offset.y);
             }
 
             let scroll_output = scroll_area.show(ui, |ui| {
@@ -442,14 +441,13 @@ pub fn show_viewer(
                 ui.label("Drop a PDF file here or click to open");
                 ui.add_space(10.0);
 
-                if ui.button("Open PDF...").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
+                if ui.button("Open PDF...").clicked()
+                    && let Some(path) = rfd::FileDialog::new()
                         .add_filter("PDF", &["pdf"])
                         .pick_file()
-                    {
-                        log::info!("Loading PDF: {}", path.display());
-                        let _ = command_tx.send(PdfCommand::ViewerLoad { path });
-                    }
+                {
+                    log::info!("Loading PDF: {}", path.display());
+                    let _ = command_tx.send(PdfCommand::ViewerLoad { path });
                 }
             }
 

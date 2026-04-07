@@ -3,6 +3,9 @@ name = "pdf-tools-gui"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 pdf-flashcards = { path = "../pdf-flashcards" }
 pdf-impose = { path = "../pdf-impose" }

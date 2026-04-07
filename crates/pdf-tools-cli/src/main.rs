@@ -406,7 +406,7 @@ async fn main() -> Result<()> {
                 println!("  Blank pages added: {}", stats.blank_pages_added);
             }
             if let Some(sigs) = stats.signatures {
-                println!("  Signatures: {}", sigs);
+                println!("  Signatures: {sigs}");
             }
             for warning in &stats.warnings {
                 eprintln!("  Warning: {warning}");

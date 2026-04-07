@@ -67,7 +67,7 @@ impl FlashcardLayout {
         )
     }
 
-    /// Convert to FlashcardOptions (all values in mm)
+    /// Convert to `FlashcardOptions` (all values in mm)
     fn to_options_mm(&self) -> FlashcardOptions {
         FlashcardOptions {
             page_width_mm: if self.paper_type == PaperType::Custom {

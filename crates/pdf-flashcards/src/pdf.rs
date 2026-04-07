@@ -1,6 +1,8 @@
 use crate::options::FlashcardOptions;
 use crate::types::{Flashcard, FlashcardError, Result};
-use printpdf::*;
+use printpdf::{
+    Mm, Op, ParsedFont, PdfDocument, PdfPage, PdfSaveOptions, Pt, Rect, TextItem, TextMatrix,
+};
 use std::path::Path;
 
 pub async fn generate_pdf(
@@ -59,7 +61,7 @@ fn generate_flashcard_pdf_bytes(
             for ch in card.front.chars() {
                 if let Some(glyph_id) = font.lookup_glyph_index(ch as u32) {
                     let advance = font.get_horizontal_advance(glyph_id);
-                    text_width += (advance as f32 / 1000.0) * options.font_size_pt;
+                    text_width += (f32::from(advance) / 1000.0) * options.font_size_pt;
                 }
             }
             let text_width_mm_front = Mm::from(Pt(text_width)).0;
@@ -92,7 +94,7 @@ fn generate_flashcard_pdf_bytes(
             for ch in card.back.chars() {
                 if let Some(glyph_id) = font.lookup_glyph_index(ch as u32) {
                     let advance = font.get_horizontal_advance(glyph_id);
-                    text_width += (advance as f32 / 1000.0) * options.font_size_pt;
+                    text_width += (f32::from(advance) / 1000.0) * options.font_size_pt;
                 }
             }
 

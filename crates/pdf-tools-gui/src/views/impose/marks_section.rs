@@ -76,7 +76,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
                                 .speed(0.5),
                             );
                         });
-                        if state.options.sewing_config.kettle_offset_mm != prev_offset {
+                        if (state.options.sewing_config.kettle_offset_mm - prev_offset).abs()
+                            > f32::EPSILON
+                        {
                             changed = true;
                         }
                     });

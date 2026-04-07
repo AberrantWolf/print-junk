@@ -1,5 +1,8 @@
 use lopdf::{Dictionary, Document, Object, Stream};
-use pdf_impose::*;
+use pdf_impose::{
+    BindingType, ImpositionOptions, LeafMargins, Margins, PageArrangement, PaperSize, Result,
+    ScalingMode, SheetMargins, impose, save_pdf,
+};
 
 fn create_numbered_pdf(num_pages: usize) -> Document {
     let mut doc = Document::with_version("1.7");
@@ -8,7 +11,7 @@ fn create_numbered_pdf(num_pages: usize) -> Document {
 
     for page_num in 1..=num_pages {
         // Create a content stream that draws the page number
-        let content = format!("BT /F1 200 Tf 200 350 Td ({}) Tj ET", page_num);
+        let content = format!("BT /F1 200 Tf 200 350 Td ({page_num}) Tj ET");
         let content_id = doc.add_object(Stream::new(Dictionary::new(), content.into_bytes()));
 
         // Create font resources

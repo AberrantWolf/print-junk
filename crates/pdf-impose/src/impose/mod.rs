@@ -15,7 +15,7 @@ mod simple;
 pub use io::{load_multiple_pdfs, load_pdf, save_pdf};
 
 use crate::options::ImpositionOptions;
-use crate::types::*;
+use crate::types::{ImposeError, Result};
 use flyleaves::add_flyleaves;
 use io::merge_documents;
 use lopdf::{Document, ObjectId};

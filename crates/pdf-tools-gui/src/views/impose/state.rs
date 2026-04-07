@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use super::super::ViewerState;
 
+#[derive(Default)]
 pub struct ImposeState {
     pub options: ImpositionOptions,
     pub preview_page_count: usize,
@@ -15,19 +16,4 @@ pub struct ImposeState {
     pub preview_signatures_shown: Option<usize>,
     /// Total signatures in the full imposition (None if no preview)
     pub preview_total_signatures: Option<usize>,
-}
-
-impl Default for ImposeState {
-    fn default() -> Self {
-        Self {
-            options: ImpositionOptions::default(),
-            preview_page_count: 0,
-            stats: None,
-            loaded_docs: Vec::new(),
-            preview_viewer: None,
-            needs_regeneration: false,
-            preview_signatures_shown: None,
-            preview_total_signatures: None,
-        }
-    }
 }

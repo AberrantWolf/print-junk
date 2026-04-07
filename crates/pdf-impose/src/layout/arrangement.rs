@@ -69,7 +69,7 @@ impl ArrangementConfig {
 ///
 /// This is the main entry point for the spread-based layout system.
 /// It returns spread positions WITHOUT page assignments - those are
-/// added separately by the page_order module.
+/// added separately by the `page_order` module.
 ///
 /// # Arguments
 /// * `arrangement` - The page arrangement (folio, quarto, octavo, custom)

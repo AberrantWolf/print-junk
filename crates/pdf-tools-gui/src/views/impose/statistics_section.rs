@@ -16,14 +16,14 @@ pub fn show(ui: &mut egui::Ui, state: &ImposeState) {
                 }
 
                 if let Some(sig_count) = stats.signatures {
-                    ui.label(format!("Number of signatures: {}", sig_count));
+                    ui.label(format!("Number of signatures: {sig_count}"));
                 }
 
-                if let Some(ref pages_per_sig) = stats.pages_per_signature {
-                    if !pages_per_sig.is_empty() {
-                        let pages_display = format_pages_per_signature(pages_per_sig);
-                        ui.label(format!("Pages per signature: {}", pages_display));
-                    }
+                if let Some(ref pages_per_sig) = stats.pages_per_signature
+                    && !pages_per_sig.is_empty()
+                {
+                    let pages_display = format_pages_per_signature(pages_per_sig);
+                    ui.label(format!("Pages per signature: {pages_display}"));
                 }
 
                 for warning in &stats.warnings {
@@ -43,6 +43,6 @@ fn format_pages_per_signature(pages_per_sig: &[usize]) -> String {
     if pages_per_sig.iter().all(|&p| p == pages_per_sig[0]) {
         format!("{} pages each", pages_per_sig[0])
     } else {
-        format!("{:?}", pages_per_sig)
+        format!("{pages_per_sig:?}")
     }
 }

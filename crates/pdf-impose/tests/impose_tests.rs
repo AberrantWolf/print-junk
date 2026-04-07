@@ -189,8 +189,8 @@ async fn test_impose_with_different_paper_sizes() {
 
     for paper_size in paper_sizes {
         options.output_paper_size = paper_size;
-        let result = impose(&[doc.clone()], &options).await;
-        assert!(result.is_ok(), "Failed for paper size: {:?}", paper_size);
+        let result = impose(std::slice::from_ref(&doc), &options).await;
+        assert!(result.is_ok(), "Failed for paper size: {paper_size:?}");
     }
 }
 
@@ -209,8 +209,8 @@ async fn test_impose_with_scaling_modes() {
 
     for mode in scaling_modes {
         options.scaling_mode = mode;
-        let result = impose(&[doc.clone()], &options).await;
-        assert!(result.is_ok(), "Failed for scaling mode: {:?}", mode);
+        let result = impose(std::slice::from_ref(&doc), &options).await;
+        assert!(result.is_ok(), "Failed for scaling mode: {mode:?}");
     }
 }
 

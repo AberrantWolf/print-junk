@@ -376,7 +376,7 @@ impl GridPosition {
 /// - Which side of the book it will be on after folding
 #[derive(Debug, Clone, PartialEq)]
 pub struct SignatureSlot {
-    /// Index in the flat signature order (0..pages_per_sig)
+    /// Index in the flat signature order (`0..pages_per_sig`)
     pub slot_index: usize,
     /// Which sheet side (front/back)
     pub sheet_side: SheetSide,

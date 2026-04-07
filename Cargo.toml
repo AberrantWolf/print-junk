@@ -41,3 +41,35 @@ serde = "1"
 serde_json = "1"
 log = "0.4"
 env_logger = "0.11"
+
+[workspace.lints.clippy]
+# Correctness & suspicious code
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# Pedantic overrides — categorically not applicable
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+# TODO: Rework code to eliminate these allows. Each represents real code quality
+# issues that should be fixed by refactoring (splitting long functions, reducing
+# arguments via builder/option structs, using newtypes for numeric conversions, etc.)
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+too_many_arguments = "allow"
+struct_excessive_bools = "allow"
+return_self_not_must_use = "allow"
+enum_variant_names = "allow"
+
+[workspace.lints.rust]
+unsafe_code = "deny"

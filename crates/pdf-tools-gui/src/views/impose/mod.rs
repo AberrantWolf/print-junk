@@ -78,15 +78,14 @@ fn show_preview_area(
             if let (Some(shown), Some(total)) = (
                 state.preview_signatures_shown,
                 state.preview_total_signatures,
-            ) {
-                if shown < total {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(140, 180, 255),
-                            format!("Preview: showing {} of {} signatures", shown, total),
-                        );
-                    });
-                }
+            ) && shown < total
+            {
+                ui.horizontal(|ui| {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(140, 180, 255),
+                        format!("Preview: showing {shown} of {total} signatures"),
+                    );
+                });
             }
             super::show_viewer(ui, &mut state.preview_viewer, command_tx);
         } else if state.options.input_files.is_empty() {

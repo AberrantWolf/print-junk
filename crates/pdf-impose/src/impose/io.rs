@@ -1,6 +1,6 @@
 //! Document I/O operations for imposition
 
-use crate::types::*;
+use crate::types::{ImposeError, Result};
 use lopdf::Document;
 use std::path::Path;
 

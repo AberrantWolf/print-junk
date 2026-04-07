@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 tokio = { workspace = true, features = ["sync"] }
 thiserror.workspace = true
