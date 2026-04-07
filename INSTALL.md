@@ -1,154 +1,82 @@
-# Installation Guide
+# 📦 Installation Guide
 
-## Prerequisites
+## From a release
 
-The PDF viewer functionality requires **PDFium**, which is automatically downloaded during build.
+Download the archive for your platform from the [Releases page](https://github.com/AberrantWolf/pdf-tools/releases) and extract it. Keep all files in the same directory.
 
-## Building the Project
+### 🐧 Linux dependencies
 
-PDFium is automatically downloaded and installed to `vendor/pdfium/` during the build process:
+The GUI requires a few system libraries for graphics and file dialogs:
 
 ```bash
-# Build all binaries (PDFium downloaded automatically)
+# Debian/Ubuntu
+sudo apt install libxcb-render0 libxcb-shape0 libxcb-xfixes0 libxkbcommon0 libgl1 libgtk-3-0
+
+# Fedora
+sudo dnf install libxcb libxkbcommon mesa-libGL gtk3
+
+# Arch
+sudo pacman -S libxcb libxkbcommon mesa gtk3
+```
+
+### 🍎 macOS Gatekeeper
+
+Since the app isn't signed, macOS may block it. To allow it:
+
+- Right-click the app → "Open", or
+- Run `xattr -cr pdf-tools-gui` in the extracted directory
+
+### 🪟 Windows
+
+You may need the [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) if it isn't already installed.
+
+## From source
+
+### Supported platforms
+
+| Platform | Architectures |
+|----------|---------------|
+| 🍎 macOS | Intel (x64), Apple Silicon (arm64) |
+| 🐧 Linux | x64, arm64 |
+| 🪟 Windows | x64, x86, arm64 |
+
+### Building
+
+```bash
 cargo build --release
-
-# Run the GUI
-cargo run --release --bin pdf-tools-gui
-
-# Run the CLI
-cargo run --release --bin pdf-tools-cli -- --help
 ```
 
-The build script will:
+The build script automatically downloads [PDFium](https://github.com/bblanchon/pdfium-binaries) (chromium/7543) to `vendor/pdfium/` and configures linking. No manual setup needed.
 
-1. Detect your platform and architecture
-2. Download the appropriate PDFium binaries from [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries)
-3. Extract them to `vendor/pdfium/` in the repository
-4. Configure linking automatically
-
-## Supported Platforms
-
-- **macOS**: Intel (x64) and Apple Silicon (arm64)
-- **Linux**: x64 and arm64
-- **Windows**: x86, x64, and arm64
-
-## Running the Built Application
-
-### macOS
+To build without the PDF viewer:
 
 ```bash
-# Set library path to use the vendored PDFium
-export DYLD_LIBRARY_PATH="$(pwd)/vendor/pdfium/lib:$DYLD_LIBRARY_PATH"
-./target/release/pdf-tools-gui
+cargo build --release --no-default-features
 ```
 
-### Linux
+### Linux build dependencies
+
+In addition to the runtime libraries above, you need development headers:
 
 ```bash
-# Set library path to use the vendored PDFium
-export LD_LIBRARY_PATH="$(pwd)/vendor/pdfium/lib:$LD_LIBRARY_PATH"
-./target/release/pdf-tools-gui
-```
-
-### Windows
-
-```cmd
-REM Ensure the vendor\pdfium\lib directory is accessible
-set PATH=%CD%\vendor\pdfium\lib;%PATH%
-target\release\pdf-tools-gui.exe
-```
-
-## Alternative: Building Without PDF Viewer
-
-If you encounter issues or don't need the PDF viewer:
-
-```bash
-# Build GUI without PDF viewer feature
-cargo build --release --bin pdf-tools-gui --no-default-features
-
-# CLI and other features still work
-cargo build --release --bin pdf-tools-cli
-```
-
-The flashcards and impose features will still work without the PDF viewer.
-
-## Distribution
-
-### For End Users (Binary Distribution)
-
-When distributing the compiled application, include the PDFium library:
-
-**macOS:**
-
-```bash
-mkdir -p dist/pdf-tools.app/Contents/MacOS
-mkdir -p dist/pdf-tools.app/Contents/Frameworks
-
-cp target/release/pdf-tools-gui dist/pdf-tools.app/Contents/MacOS/
-cp vendor/pdfium/lib/libpdfium.dylib dist/pdf-tools.app/Contents/Frameworks/
-
-# Update library path in binary
-install_name_tool -change \
-  libpdfium.dylib \
-  @executable_path/../Frameworks/libpdfium.dylib \
-  dist/pdf-tools.app/Contents/MacOS/pdf-tools-gui
-```
-
-**Linux:**
-
-```bash
-mkdir -p dist/lib
-cp target/release/pdf-tools-gui dist/
-cp vendor/pdfium/lib/libpdfium.so dist/lib/
-
-# Create launcher script
-cat > dist/pdf-tools.sh << 'EOF'
-#!/bin/bash
-DIR="$(dirname "$(readlink -f "$0")")"
-export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
-exec "$DIR/pdf-tools-gui" "$@"
-EOF
-chmod +x dist/pdf-tools.sh
-```
-
-**Windows:**
-
-```cmd
-mkdir dist
-copy target\release\pdf-tools-gui.exe dist\
-copy vendor\pdfium\lib\pdfium.dll dist\
+# Debian/Ubuntu
+sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+  libxkbcommon-dev libgl1-mesa-dev libgtk-3-dev libatk1.0-dev
 ```
 
 ## Troubleshooting
 
-### Build Fails to Download PDFium
-
-If the download fails:
+### PDFium download fails during build
 
 1. Check your internet connection
-2. Try building again (the script will retry)
-3. Manually download from [pdfium-binaries releases](https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7350)
-4. Extract to `vendor/pdfium/` in the repository root
+2. Try building again — the download is cached after the first success
+3. As a last resort, manually download the correct archive from [pdfium-binaries releases](https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7543) and extract it to `vendor/pdfium/` in the repository root
 
-### Runtime "Failed to Load PDFium" Error
+### "Failed to load PDFium" at runtime
 
-Ensure the library path is set correctly:
+Make sure the PDFium library file (`libpdfium.dylib`, `libpdfium.so`, or `pdfium.dll`) is in the same directory as the `pdf-tools-gui` binary.
 
-**macOS:**
-
-```bash
-export DYLD_LIBRARY_PATH="$(pwd)/vendor/pdfium/lib:$DYLD_LIBRARY_PATH"
-```
-
-**Linux:**
-
-```bash
-export LD_LIBRARY_PATH="$(pwd)/vendor/pdfium/lib:$LD_LIBRARY_PATH"
-```
-
-### Clean Build
-
-To force re-download of PDFium:
+### Force re-download of PDFium
 
 ```bash
 rm -rf vendor/pdfium
@@ -156,13 +84,6 @@ cargo clean -p pdf-tools-gui
 cargo build --release
 ```
 
-## Getting Help
+### Getting help
 
-If you encounter issues:
-
-1. Check the [pdfium-binaries releases](https://github.com/bblanchon/pdfium-binaries/releases) for your platform
-2. Verify your architecture: `uname -m` (macOS/Linux) or System Properties (Windows)
-3. Open an issue with:
-   - Your OS and architecture
-   - Complete error message
-   - Output of `cargo build -vv`
+Open an issue with your OS, architecture (`uname -m`), and the full error message.
