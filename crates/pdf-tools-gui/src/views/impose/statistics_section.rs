@@ -25,6 +25,10 @@ pub fn show(ui: &mut egui::Ui, state: &ImposeState) {
                         ui.label(format!("Pages per signature: {}", pages_display));
                     }
                 }
+
+                for warning in &stats.warnings {
+                    ui.colored_label(egui::Color32::from_rgb(255, 200, 80), format!("⚠ {warning}"));
+                }
             } else {
                 ui.label("No statistics available");
                 ui.label("Add input files and configure options to see statistics");
