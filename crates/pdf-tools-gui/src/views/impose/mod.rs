@@ -75,6 +75,18 @@ fn show_preview_area(
 ) {
     egui::CentralPanel::default().show_inside(ui, |ui| {
         if state.preview_viewer.is_some() {
+            if let (Some(shown), Some(total)) =
+                (state.preview_signatures_shown, state.preview_total_signatures)
+            {
+                if shown < total {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(140, 180, 255),
+                            format!("Preview: showing {} of {} signatures", shown, total),
+                        );
+                    });
+                }
+            }
             super::show_viewer(ui, &mut state.preview_viewer, command_tx);
         } else if state.options.input_files.is_empty() {
             ui.centered_and_justified(|ui| {

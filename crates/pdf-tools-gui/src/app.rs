@@ -287,9 +287,14 @@ impl eframe::App for PdfToolsApp {
                 PdfUpdate::ImposePreviewGenerated {
                     pdf_bytes,
                     page_count,
+                    signatures_shown,
+                    total_signatures,
                 } => {
-                    log::info!("Preview generated with {} pages", page_count);
+                    log::info!("Preview generated with {} pages ({} of {} signatures)",
+                        page_count, signatures_shown, total_signatures);
                     self.impose_state.preview_page_count = page_count;
+                    self.impose_state.preview_signatures_shown = Some(signatures_shown);
+                    self.impose_state.preview_total_signatures = Some(total_signatures);
                     self.progress = None;
 
                     // Load the preview bytes into the viewer (no disk round-trip)
