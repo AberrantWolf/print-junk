@@ -415,10 +415,7 @@ fn show_actions_section(
     }
 }
 
-fn generate_preview(
-    state: &mut FlashcardState,
-    command_tx: &mpsc::UnboundedSender<PdfCommand>,
-) {
+fn generate_preview(state: &mut FlashcardState, command_tx: &mpsc::UnboundedSender<PdfCommand>) {
     state.needs_regeneration = false;
     log::info!("Generating flashcard preview");
     let options = state.to_options();

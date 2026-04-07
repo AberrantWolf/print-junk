@@ -94,4 +94,3 @@ pub(crate) fn impose_simple_binding(
     finalize_document(&mut output, pages_tree_id, page_refs);
     Ok(output)
 }
-

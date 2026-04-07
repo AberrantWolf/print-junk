@@ -154,9 +154,7 @@ impl eframe::App for PdfToolsApp {
                 }
                 _ if ext == "pdf" => {
                     log::info!("Loading PDF: {}", path.display());
-                    let _ = self
-                        .command_tx
-                        .send(PdfCommand::ViewerLoad { path });
+                    let _ = self.command_tx.send(PdfCommand::ViewerLoad { path });
                 }
                 _ => {}
             }
@@ -290,17 +288,22 @@ impl eframe::App for PdfToolsApp {
                     signatures_shown,
                     total_signatures,
                 } => {
-                    log::info!("Preview generated with {} pages ({} of {} signatures)",
-                        page_count, signatures_shown, total_signatures);
+                    log::info!(
+                        "Preview generated with {} pages ({} of {} signatures)",
+                        page_count,
+                        signatures_shown,
+                        total_signatures
+                    );
                     self.impose_state.preview_page_count = page_count;
                     self.impose_state.preview_signatures_shown = Some(signatures_shown);
                     self.impose_state.preview_total_signatures = Some(total_signatures);
                     self.progress = None;
 
                     // Load the preview bytes into the viewer (no disk round-trip)
-                    let _ = self
-                        .command_tx
-                        .send(PdfCommand::ViewerLoadBytes { pdf_bytes, page_count });
+                    let _ = self.command_tx.send(PdfCommand::ViewerLoadBytes {
+                        pdf_bytes,
+                        page_count,
+                    });
                 }
                 PdfUpdate::ImposeConfigLoaded { options } => {
                     log::info!("Configuration loaded");
@@ -389,7 +392,10 @@ impl eframe::App for PdfToolsApp {
                     }
 
                     for (name, preview) in [
-                        ("flashcard_preview", &mut self.flashcard_state.preview_viewer),
+                        (
+                            "flashcard_preview",
+                            &mut self.flashcard_state.preview_viewer,
+                        ),
                         ("impose_preview", &mut self.impose_state.preview_viewer),
                     ] {
                         if let Some(state) = preview {
@@ -404,11 +410,9 @@ impl eframe::App for PdfToolsApp {
                             }
                             if let Some(zoom) = &mut state.zoom {
                                 if page_width_pts > 0.0 && page_height_pts > 0.0 {
-                                    zoom.page_native_size =
-                                        Some((page_width_pts, page_height_pts));
+                                    zoom.page_native_size = Some((page_width_pts, page_height_pts));
                                 }
-                                zoom.rendered_zoom =
-                                    Some(crate::viewer::quantize_zoom(zoom_level));
+                                zoom.rendered_zoom = Some(crate::viewer::quantize_zoom(zoom_level));
                             }
                         }
                     }

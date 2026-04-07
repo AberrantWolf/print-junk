@@ -71,8 +71,7 @@ pub(crate) fn impose_signature_binding(
                 &spread_positions,
                 sheet_assignment.for_side(SheetSide::Front),
             );
-            let front_layout =
-                SpreadSheetLayout::new(SheetSide::Front, front_spreads, leaf_bounds);
+            let front_layout = SpreadSheetLayout::new(SheetSide::Front, front_spreads, leaf_bounds);
 
             let front_page_id = render_sheet_spreads(
                 &mut output,
@@ -96,8 +95,7 @@ pub(crate) fn impose_signature_binding(
                 &spread_positions,
                 sheet_assignment.for_side(SheetSide::Back),
             );
-            let back_layout =
-                SpreadSheetLayout::new(SheetSide::Back, back_spreads, leaf_bounds);
+            let back_layout = SpreadSheetLayout::new(SheetSide::Back, back_spreads, leaf_bounds);
 
             let back_page_id = render_sheet_spreads(
                 &mut output,
@@ -122,7 +120,6 @@ pub(crate) fn impose_signature_binding(
     finalize_document(&mut output, pages_tree_id, page_refs);
     Ok(output)
 }
-
 
 /// Create pages tree and catalog, finalize document structure
 pub(crate) fn finalize_document(

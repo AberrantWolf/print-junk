@@ -182,7 +182,10 @@ fn test_validation_leaf_margins_ok_for_folio_but_too_large_for_octavo() {
     };
 
     options.page_arrangement = PageArrangement::Folio;
-    assert!(options.validate().is_ok(), "Folio should fit with these margins");
+    assert!(
+        options.validate().is_ok(),
+        "Folio should fit with these margins"
+    );
 
     options.page_arrangement = PageArrangement::Octavo;
     assert!(

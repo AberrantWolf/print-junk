@@ -155,7 +155,10 @@ async fn process_command(
             }
 
             if let Some(state) = viewer_state {
-                handlers::viewer::handle_render_page(doc_id, page_index, zoom_level, state, update_tx).await;
+                handlers::viewer::handle_render_page(
+                    doc_id, page_index, zoom_level, state, update_tx,
+                )
+                .await;
             } else {
                 let _ = update_tx.send(PdfUpdate::Error {
                     message: "PDF viewer not initialized".to_string(),
@@ -169,7 +172,8 @@ async fn process_command(
             zoom_level,
         } => {
             if let Some(state) = viewer_state {
-                handlers::viewer::handle_prefetch_pages(doc_id, page_indices, zoom_level, state).await;
+                handlers::viewer::handle_prefetch_pages(doc_id, page_indices, zoom_level, state)
+                    .await;
             }
         }
         #[cfg(feature = "pdf-viewer")]

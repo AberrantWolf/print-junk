@@ -36,9 +36,8 @@ pub async fn generate_preview(
 
     let (source_pages_needed, signatures_shown) = if options.binding_type.uses_signatures() {
         let pages_per_sig = options.pages_per_signature();
-        let effective_max = max_signatures.unwrap_or_else(|| {
-            (MAX_PREVIEW_SHEETS / options.sheets_per_signature).max(1)
-        });
+        let effective_max = max_signatures
+            .unwrap_or_else(|| (MAX_PREVIEW_SHEETS / options.sheets_per_signature).max(1));
         let total_sigs = (total_source_pages + pages_per_sig - 1) / pages_per_sig;
         let sigs = total_sigs.min(effective_max);
         (sigs * pages_per_sig, sigs)
