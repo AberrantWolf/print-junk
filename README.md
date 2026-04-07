@@ -1,52 +1,91 @@
-# PDF Tools
+# 📄 PDF Tools
 
 Collection of PDF processing and generation tools built with Rust.
 
-## Features
+## ✨ Features
 
-- **PDF Viewer** - Basic PDF viewing with page navigation
-- **Flashcard Generator** - Create PDF flashcards from CSV
-- **PDF Imposition** - 2-up, 4-up, booklet layouts (in progress)
+- 🔍 **PDF Viewer** — Page navigation with caching and prefetch
+- 🃏 **Flashcard Generator** — Create printable flashcard PDFs from CSV
+- 📐 **PDF Imposition** — Signature, perfect, spiral, and case binding with folio/quarto/octavo arrangements, printer's marks, and more
 
-## Quick Start
+## 📦 Installation
+
+Download the latest release for your platform from the [Releases page](https://github.com/AberrantWolf/pdf-tools/releases).
+
+Extract the archive and keep all files in the same directory — the GUI needs the bundled PDFium library alongside it to run.
+
+| Platform | Prerequisites |
+|----------|---------------|
+| 🍎 **macOS** | None. If Gatekeeper blocks the app, right-click → "Open" or run `xattr -cr pdf-tools-gui` |
+| 🪟 **Windows** | [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) (likely already installed) |
+| 🐧 **Linux** | A few system libraries — see [INSTALL.md](INSTALL.md) for package names |
+
+> 💡 The `pdft` CLI binary has no extra dependencies and works standalone without PDFium.
+
+## 🚀 Quick Start
 
 ```bash
-# Build (PDFium downloaded automatically during build)
-cargo build --release
+# GUI
+./pdf-tools-gui
 
-# Run GUI
-cargo run --release --bin pdf-tools-gui
+# CLI help
+./pdft --help
 
-# Run CLI
-cargo run --release --bin pdf-tools-cli -- --help
+# Impose a PDF for signature binding
+./pdft impose -i input.pdf -o output.pdf --binding signature --arrangement folio
+
+# Generate flashcards from CSV
+./pdft flashcards -i cards.csv -o output.pdf --rows 2 --columns 3
 ```
 
-PDFium is automatically downloaded and installed to `vendor/pdfium/` during the build process. See **[INSTALL.md](INSTALL.md)** for platform-specific runtime instructions and troubleshooting.
+<details>
+<summary>🔨 Building from source</summary>
 
-## Documentation
+```bash
+# Build everything (PDFium is downloaded automatically)
+cargo build --release
 
-- **[INSTALL.md](INSTALL.md)** - Installation instructions, troubleshooting, and distribution
-- **[CLAUDE.md](CLAUDE.md)** - Project architecture and development guidelines
+# Run
+cargo run --release --bin pdf-tools-gui
+cargo run --release --bin pdft -- --help
+```
 
-## Architecture
-
-- **CLI** (`pdf-tools-cli`) - Command-line interface
-- **GUI** (`pdf-tools-gui`) - Desktop app built with egui
-- **Libraries** - Shared functionality in separate crates
-  - `pdf-flashcards` - Flashcard generation
-  - `pdf-impose` - PDF imposition
-  - `pdf-async-runtime` - Async command/update infrastructure
-
-## Building Without PDF Viewer
-
-If you encounter issues with PDFium:
+Build without the PDF viewer (if you don't need it or hit PDFium issues):
 
 ```bash
 cargo build --release --no-default-features
 ```
 
-The flashcards and impose features will still work.
+See [INSTALL.md](INSTALL.md) for troubleshooting build issues.
 
-## License
+</details>
+
+<details>
+<summary>📋 Releasing a new version</summary>
+
+1. Update the version in `Cargo.toml` → `[workspace.package]`
+2. Commit and push to main
+3. Tag and push:
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+4. The [Release workflow](.github/workflows/release.yml) automatically builds for Linux (x86_64), macOS (x86_64 + ARM), and Windows (x86_64), then creates a GitHub Release with all archives attached.
+
+</details>
+
+## 🏗️ Architecture
+
+```
+pdf-tools/
+├── crates/
+│   ├── 🖥️ pdf-tools-cli      CLI (binary: pdft)
+│   ├── 🪟 pdf-tools-gui      Desktop GUI (egui) + WASM web
+│   ├── 📐 pdf-impose          Imposition library
+│   ├── 🃏 pdf-flashcards      Flashcard generation
+│   └── ⚡ pdf-async-runtime   Async command/update channels
+```
+
+## 📄 License
 
 MIT
