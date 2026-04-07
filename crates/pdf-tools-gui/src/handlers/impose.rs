@@ -1,50 +1,24 @@
 use lopdf::Document;
 use pdf_async_runtime::{ImpositionOptions, PdfUpdate};
 use pdf_impose::{calculate_statistics, generate_preview, impose, load_multiple_pdfs, save_pdf};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
-// Store loaded documents for impose operations
-static NEXT_DOC_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-
+/// Caches loaded source documents to avoid reloading on every preview
 pub struct ImposeDocStore {
-    /// Preview documents stored by ID
-    preview_documents: HashMap<u64, Document>,
-    /// Cached source documents by input file paths (to avoid reloading)
     source_cache: Option<SourceDocCache>,
 }
 
-/// Cache for source documents to avoid reloading on every preview
 struct SourceDocCache {
-    /// The input file paths that were used to load these documents
     paths: Vec<PathBuf>,
-    /// The loaded documents
     documents: Vec<Document>,
 }
 
 impl ImposeDocStore {
     pub fn new() -> Self {
         Self {
-            preview_documents: HashMap::new(),
             source_cache: None,
         }
-    }
-
-    pub fn store(&mut self, doc: Document) -> u64 {
-        let id = NEXT_DOC_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.preview_documents.insert(id, doc);
-        id
-    }
-
-    #[allow(dead_code)]
-    pub fn get(&self, id: u64) -> Option<&Document> {
-        self.preview_documents.get(&id)
-    }
-
-    #[allow(dead_code)]
-    pub fn remove(&mut self, id: u64) -> Option<Document> {
-        self.preview_documents.remove(&id)
     }
 
     /// Get cached source documents if the paths match, otherwise load and cache
@@ -52,7 +26,6 @@ impl ImposeDocStore {
         &mut self,
         paths: &[PathBuf],
     ) -> Result<&[Document], pdf_impose::ImposeError> {
-        // Check if cache is valid (same paths in same order)
         let cache_valid = self
             .source_cache
             .as_ref()
@@ -71,12 +44,6 @@ impl ImposeDocStore {
         }
 
         Ok(&self.source_cache.as_ref().unwrap().documents)
-    }
-
-    /// Clear the source cache (e.g., when files change)
-    #[allow(dead_code)]
-    pub fn clear_source_cache(&mut self) {
-        self.source_cache = None;
     }
 }
 
@@ -133,7 +100,7 @@ pub async fn handle_generate_preview(
     }
 
     // Generate preview (first signature or reasonable sample)
-    let preview = match generate_preview(documents, &options, 4).await {
+    let mut preview = match generate_preview(documents, &options, 4).await {
         Ok(doc) => doc,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
@@ -144,10 +111,18 @@ pub async fn handle_generate_preview(
     };
 
     let page_count = preview.get_pages().len();
-    let doc_id = doc_store.store(preview);
+
+    // Serialize to bytes for in-memory viewer loading (no disk round-trip)
+    let mut pdf_bytes = Vec::new();
+    if let Err(e) = preview.save_to(&mut pdf_bytes) {
+        let _ = update_tx.send(PdfUpdate::Error {
+            message: format!("Failed to serialize preview: {}", e),
+        });
+        return;
+    }
 
     let _ = update_tx.send(PdfUpdate::ImposePreviewGenerated {
-        doc_id: pdf_async_runtime::DocumentId(doc_id),
+        pdf_bytes,
         page_count,
     });
 }

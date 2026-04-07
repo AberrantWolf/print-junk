@@ -90,10 +90,18 @@ pub fn make_render_config(page_width_pts: f32, page_height_pts: f32, zoom: f32) 
         .set_maximum_height(h)
 }
 
+/// A document source: either a file path or in-memory PDF bytes
+#[cfg(feature = "pdf-viewer")]
+#[derive(Clone)]
+pub enum DocumentSource {
+    File(PathBuf),
+    Bytes(Vec<u8>),
+}
+
 /// State for PDF viewer functionality
 #[cfg(feature = "pdf-viewer")]
 pub struct ViewerState {
-    documents: HashMap<DocumentId, PathBuf>,
+    documents: HashMap<DocumentId, DocumentSource>,
     page_cache: HashMap<CacheKey, CachedPage>,
     cache_order: VecDeque<CacheKey>,
     next_doc_id: AtomicU64,
@@ -115,10 +123,14 @@ impl ViewerState {
     }
 
     pub fn add_document(&mut self, doc_id: DocumentId, path: PathBuf) {
-        self.documents.insert(doc_id, path);
+        self.documents.insert(doc_id, DocumentSource::File(path));
     }
 
-    pub fn get_document(&self, doc_id: &DocumentId) -> Option<&PathBuf> {
+    pub fn add_document_bytes(&mut self, doc_id: DocumentId, bytes: Vec<u8>) {
+        self.documents.insert(doc_id, DocumentSource::Bytes(bytes));
+    }
+
+    pub fn get_document(&self, doc_id: &DocumentId) -> Option<&DocumentSource> {
         self.documents.get(doc_id)
     }
 

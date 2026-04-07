@@ -79,9 +79,8 @@ fn load_configuration(command_tx: &mpsc::UnboundedSender<PdfCommand>) {
 fn generate_preview(state: &mut ImposeState, command_tx: &mpsc::UnboundedSender<PdfCommand>) {
     state.needs_regeneration = false;
     log::info!("Generating impose preview");
-    let _ = command_tx.send(PdfCommand::ImposeGenerate {
+    let _ = command_tx.send(PdfCommand::ImposeGeneratePreview {
         options: state.options.clone(),
-        output_path: std::env::temp_dir().join("impose_preview.pdf"),
     });
 }
 
