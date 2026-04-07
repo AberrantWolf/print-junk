@@ -422,23 +422,43 @@ impl<'a> LeafMarginsEditor<'a> {
         let mut changed = false;
 
         changed |= labeled_drag_clamped_with_tooltip(
-            ui, "Top (head):", self.top, 0.0..=self.max, " mm",
+            ui,
+            "Top (head):",
+            self.top,
+            0.0..=self.max,
+            " mm",
             "Margin at the top (head) of the page",
         );
         changed |= labeled_drag_clamped_with_tooltip(
-            ui, "Bottom (tail):", self.bottom, 0.0..=self.max, " mm",
+            ui,
+            "Bottom (tail):",
+            self.bottom,
+            0.0..=self.max,
+            " mm",
             "Margin at the bottom (tail/foot) of the page",
         );
         changed |= labeled_drag_clamped_with_tooltip(
-            ui, "Fore edge:", self.fore_edge, 0.0..=self.max, " mm",
+            ui,
+            "Fore edge:",
+            self.fore_edge,
+            0.0..=self.max,
+            " mm",
             "Margin on the side opposite the spine",
         );
         changed |= labeled_drag_clamped_with_tooltip(
-            ui, "Spine (gutter):", self.spine, 0.0..=self.max, " mm",
+            ui,
+            "Spine (gutter):",
+            self.spine,
+            0.0..=self.max,
+            " mm",
             "Margin at the spine where pages are bound together",
         );
         changed |= labeled_drag_clamped_with_tooltip(
-            ui, "Trim allowance:", self.cut, 0.0..=self.max, " mm",
+            ui,
+            "Trim allowance:",
+            self.cut,
+            0.0..=self.max,
+            " mm",
             "Extra material around fold edges, trimmed away after binding (3mm standard)",
         );
 

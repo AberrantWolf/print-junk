@@ -1,7 +1,7 @@
 use crate::constants::mm_to_pt;
+use crate::layout::Rect;
 use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
 use crate::layout::spread::calculate_spread_content;
-use crate::layout::Rect;
 use crate::types::*;
 use std::path::PathBuf;
 
@@ -196,11 +196,8 @@ impl ImpositionOptions {
         }
 
         // Validate effective book page area through the full layout pipeline
-        let spread_positions = calculate_spread_positions(
-            self.page_arrangement,
-            leaf_bounds,
-            &self.margins.leaf,
-        );
+        let spread_positions =
+            calculate_spread_positions(self.page_arrangement, leaf_bounds, &self.margins.leaf);
         let cut_edges = calculate_cut_edges(self.page_arrangement);
         for (spread, cuts) in spread_positions.iter().zip(cut_edges.iter()) {
             let content = calculate_spread_content(spread, &self.margins.leaf, *cuts);

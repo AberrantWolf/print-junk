@@ -99,11 +99,7 @@ pub fn render_imposed_page(
 
     // Add page numbers
     if add_page_numbers {
-        let (font_ops, font_id) = render_page_numbers(
-            output,
-            placements,
-            page_number_start,
-        );
+        let (font_ops, font_id) = render_page_numbers(output, placements, page_number_start);
         content_ops.push(font_ops);
         fonts.set("F1", Object::Reference(font_id));
     }
@@ -151,4 +147,3 @@ fn generate_placement_command(
         )
     }
 }
-

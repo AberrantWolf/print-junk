@@ -80,4 +80,3 @@ fn impose_sync(documents: &[Document], options: &ImpositionOptions) -> Result<Do
         simple::impose_simple_binding(&merged, &page_ids, options)
     }
 }
-

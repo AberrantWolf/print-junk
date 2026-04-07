@@ -27,7 +27,10 @@ pub fn show(ui: &mut egui::Ui, state: &ImposeState) {
                 }
 
                 for warning in &stats.warnings {
-                    ui.colored_label(egui::Color32::from_rgb(255, 200, 80), format!("⚠ {warning}"));
+                    ui.colored_label(
+                        egui::Color32::from_rgb(255, 200, 80),
+                        format!("⚠ {warning}"),
+                    );
                 }
             } else {
                 ui.label("No statistics available");

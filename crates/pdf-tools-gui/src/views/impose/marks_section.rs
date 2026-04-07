@@ -10,11 +10,18 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
 
             changed |= ui
                 .checkbox(&mut state.options.marks.fold_lines, "Fold lines")
-                .on_hover_text("Dashed lines indicating where to fold the sheet, including the spine fold")
+                .on_hover_text(
+                    "Dashed lines indicating where to fold the sheet, including the spine fold",
+                )
                 .changed();
             changed |= ui
-                .checkbox(&mut state.options.marks.trim_marks, "Trim marks (guillotine)")
-                .on_hover_text("L-shaped marks at fold edges showing where to trim after folding and binding")
+                .checkbox(
+                    &mut state.options.marks.trim_marks,
+                    "Trim marks (guillotine)",
+                )
+                .on_hover_text(
+                    "L-shaped marks at fold edges showing where to trim after folding and binding",
+                )
                 .changed();
             changed |= ui
                 .checkbox(
@@ -58,8 +65,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
 
                         let prev_offset = state.options.sewing_config.kettle_offset_mm;
                         ui.horizontal(|ui| {
-                            ui.label("Kettle offset (mm):")
-                                .on_hover_text("Distance from spine to the outermost sewing station");
+                            ui.label("Kettle offset (mm):").on_hover_text(
+                                "Distance from spine to the outermost sewing station",
+                            );
                             ui.add(
                                 egui::DragValue::new(
                                     &mut state.options.sewing_config.kettle_offset_mm,

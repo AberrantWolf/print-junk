@@ -194,11 +194,17 @@ pub fn get_page_dimensions(doc: &Document, page_id: ObjectId) -> Result<(f32, f3
         .ok()
     {
         let width = extract_number(&mb[2]).unwrap_or_else(|| {
-            log::warn!("Page {:?}: could not parse MediaBox width, using default", page_id);
+            log::warn!(
+                "Page {:?}: could not parse MediaBox width, using default",
+                page_id
+            );
             DEFAULT_PAGE_DIMENSIONS.0
         });
         let height = extract_number(&mb[3]).unwrap_or_else(|| {
-            log::warn!("Page {:?}: could not parse MediaBox height, using default", page_id);
+            log::warn!(
+                "Page {:?}: could not parse MediaBox height, using default",
+                page_id
+            );
             DEFAULT_PAGE_DIMENSIONS.1
         });
         Ok((width, height))

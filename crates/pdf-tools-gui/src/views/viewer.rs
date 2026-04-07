@@ -41,7 +41,12 @@ impl ZoomState {
     /// Compute a scroll offset that preserves the viewport center when zoom changes.
     /// `anchor_offset` is the point in viewport coordinates to keep stable
     /// (e.g. viewport_size/2 for center, or cursor position for scroll-zoom).
-    fn compute_scroll_for_zoom(&self, old_zoom: f32, new_zoom: f32, anchor_offset: egui::Vec2) -> egui::Vec2 {
+    fn compute_scroll_for_zoom(
+        &self,
+        old_zoom: f32,
+        new_zoom: f32,
+        anchor_offset: egui::Vec2,
+    ) -> egui::Vec2 {
         let ratio = new_zoom / old_zoom;
         // The anchor point in content coordinates (before zoom change)
         let anchor_in_content = self.last_scroll_offset + anchor_offset;
@@ -172,10 +177,7 @@ pub fn show_viewer(
         if let Some(zoom) = &mut state.zoom {
             ui.horizontal(|ui| {
                 // Fit to window button
-                if ui
-                    .selectable_label(zoom.fit_to_window, "Fit")
-                    .clicked()
-                {
+                if ui.selectable_label(zoom.fit_to_window, "Fit").clicked() {
                     zoom.fit_to_window = true;
                     // Fit zoom will be computed below when we know available size
                     zoom_changed = true;
@@ -188,8 +190,7 @@ pub fn show_viewer(
                     let label = format!("{}%", preset as u32);
                     if ui
                         .selectable_label(
-                            !zoom.fit_to_window
-                                && (zoom.zoom_percent - preset).abs() < 0.5,
+                            !zoom.fit_to_window && (zoom.zoom_percent - preset).abs() < 0.5,
                             label,
                         )
                         .clicked()
@@ -260,9 +261,8 @@ pub fn show_viewer(
             let cmd_held = ui.input(|i| i.modifiers.command);
             if cmd_held {
                 let fit_pressed = ui.input(|i| i.key_pressed(egui::Key::Num0));
-                let plus_pressed = ui.input(|i| {
-                    i.key_pressed(egui::Key::Equals) || i.key_pressed(egui::Key::Plus)
-                });
+                let plus_pressed = ui
+                    .input(|i| i.key_pressed(egui::Key::Equals) || i.key_pressed(egui::Key::Plus));
                 let minus_pressed = ui.input(|i| i.key_pressed(egui::Key::Minus));
 
                 if let Some(zoom) = &mut state.zoom {
@@ -313,13 +313,13 @@ pub fn show_viewer(
                         // by subtracting the scroll area's top-left (approximated by
                         // current ui clip rect min, which is close enough)
                         let viewport_anchor = pos - ui.clip_rect().min;
-                        let viewport_anchor = egui::vec2(
-                            viewport_anchor.x.max(0.0),
-                            viewport_anchor.y.max(0.0),
-                        );
-                        zoom.scroll_offset_override = Some(
-                            zoom.compute_scroll_for_zoom(old_pct, zoom.zoom_percent, viewport_anchor),
-                        );
+                        let viewport_anchor =
+                            egui::vec2(viewport_anchor.x.max(0.0), viewport_anchor.y.max(0.0));
+                        zoom.scroll_offset_override = Some(zoom.compute_scroll_for_zoom(
+                            old_pct,
+                            zoom.zoom_percent,
+                            viewport_anchor,
+                        ));
                     }
                 }
             }
@@ -359,9 +359,8 @@ pub fn show_viewer(
                     if (new_zoom - old_zoom_percent).abs() > 0.1 {
                         // For button/keyboard zoom, anchor on viewport center
                         let anchor = zoom.last_viewport_size * 0.5;
-                        zoom.scroll_offset_override = Some(
-                            zoom.compute_scroll_for_zoom(old_zoom_percent, new_zoom, anchor),
-                        );
+                        zoom.scroll_offset_override =
+                            Some(zoom.compute_scroll_for_zoom(old_zoom_percent, new_zoom, anchor));
                     }
                 }
             }

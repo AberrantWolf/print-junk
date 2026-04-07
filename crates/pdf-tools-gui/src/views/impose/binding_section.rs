@@ -30,11 +30,31 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
 fn show_binding_type_selector(ui: &mut egui::Ui, binding_type: &mut BindingType) -> bool {
     let mut changed = false;
     let options: &[(BindingType, &str, &str)] = &[
-        (BindingType::Signature, "Signature", "Folded and sewn signatures, the traditional bookbinding method"),
-        (BindingType::PerfectBinding, "Perfect", "Pages glued directly to the spine"),
-        (BindingType::SideStitch, "Side Stitch", "Pages stapled or sewn through the side near the spine"),
-        (BindingType::Spiral, "Spiral", "Pages bound with a spiral or comb through punched holes"),
-        (BindingType::CaseBinding, "Case", "Signature binding with a rigid cover (hardcover)"),
+        (
+            BindingType::Signature,
+            "Signature",
+            "Folded and sewn signatures, the traditional bookbinding method",
+        ),
+        (
+            BindingType::PerfectBinding,
+            "Perfect",
+            "Pages glued directly to the spine",
+        ),
+        (
+            BindingType::SideStitch,
+            "Side Stitch",
+            "Pages stapled or sewn through the side near the spine",
+        ),
+        (
+            BindingType::Spiral,
+            "Spiral",
+            "Pages bound with a spiral or comb through punched holes",
+        ),
+        (
+            BindingType::CaseBinding,
+            "Case",
+            "Signature binding with a rigid cover (hardcover)",
+        ),
     ];
     ui.horizontal(|ui| {
         for (value, label, tooltip) in options {
@@ -61,8 +81,16 @@ fn show_arrangement_selector(
     ui.horizontal(|ui| {
         let arrangements: &[(PageArrangement, &str, &str)] = &[
             (PageArrangement::Folio, "Folio", "1 fold, 4 pages per sheet"),
-            (PageArrangement::Quarto, "Quarto", "2 folds, 8 pages per sheet"),
-            (PageArrangement::Octavo, "Octavo", "3 folds, 16 pages per sheet"),
+            (
+                PageArrangement::Quarto,
+                "Quarto",
+                "2 folds, 8 pages per sheet",
+            ),
+            (
+                PageArrangement::Octavo,
+                "Octavo",
+                "3 folds, 16 pages per sheet",
+            ),
         ];
         for (value, label, tooltip) in arrangements {
             if ui
