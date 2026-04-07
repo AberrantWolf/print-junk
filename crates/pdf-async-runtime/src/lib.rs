@@ -86,6 +86,10 @@ pub enum PdfUpdate {
     ImposePreviewGenerated {
         pdf_bytes: Vec<u8>,
         page_count: usize,
+        /// Number of signatures included in this preview
+        signatures_shown: usize,
+        /// Total signatures in the full imposition
+        total_signatures: usize,
     },
     ImposeConfigLoaded {
         options: ImpositionOptions,

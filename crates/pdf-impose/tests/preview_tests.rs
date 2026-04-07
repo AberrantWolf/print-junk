@@ -58,13 +58,13 @@ async fn test_generate_preview_basic() {
     options.binding_type = BindingType::Signature;
     options.page_arrangement = PageArrangement::Quarto;
 
-    let preview = generate_preview(&[doc], &options, 2).await;
+    let preview = generate_preview(&[doc], &options, Some(2)).await;
     assert!(preview.is_ok());
 
     let output = preview.unwrap();
     // 20 pages with Quarto (8 per signature) = 3 signatures, but preview limited to 2 signatures
     // 2 signatures × 2 output pages per signature = 4 output pages
-    assert_eq!(output.get_pages().len(), 4);
+    assert_eq!(output.document.get_pages().len(), 4);
 }
 
 #[tokio::test]
@@ -73,7 +73,7 @@ async fn test_generate_preview_no_pages() {
     let mut options = ImpositionOptions::default();
     options.input_files.push(PathBuf::from("test.pdf"));
 
-    let preview = generate_preview(&[doc], &options, 1).await;
+    let preview = generate_preview(&[doc], &options, Some(1)).await;
     assert!(preview.is_err());
 }
 
@@ -83,17 +83,17 @@ async fn test_generate_preview_different_sheet_counts() {
     let mut options = ImpositionOptions::default();
     options.input_files.push(PathBuf::from("test.pdf"));
 
-    for max_sheets in 1..=5 {
-        let preview = generate_preview(&[doc.clone()], &options, max_sheets).await;
-        assert!(preview.is_ok(), "Failed with max_sheets: {}", max_sheets);
+    for max_sigs in 1..=5 {
+        let preview = generate_preview(&[doc.clone()], &options, Some(max_sigs)).await;
+        assert!(preview.is_ok(), "Failed with max_sigs: {}", max_sigs);
 
         let output = preview.unwrap();
         // 16 pages with default Quarto (8 per signature)
-        // max_sheets signatures, each with 2 output pages
-        // Limited to available: min(max_sheets, 2 total signatures)
-        let expected_sigs = max_sheets.min(2);
+        // max_sigs signatures, each with 2 output pages
+        // Limited to available: min(max_sigs, 2 total signatures)
+        let expected_sigs = max_sigs.min(2);
         let expected_pages = expected_sigs * 2;
-        assert_eq!(output.get_pages().len(), expected_pages);
+        assert_eq!(output.document.get_pages().len(), expected_pages);
     }
 }
 
@@ -104,13 +104,13 @@ async fn test_generate_preview_perfect_binding() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.binding_type = BindingType::PerfectBinding;
 
-    let preview = generate_preview(&[doc], &options, 3).await;
+    let preview = generate_preview(&[doc], &options, Some(3)).await;
     assert!(preview.is_ok());
 
     let output = preview.unwrap();
     // 12 pages with PerfectBinding, limited to 3 sheets = 3 * 2 = 6 source pages
     // 6 source pages with 2-up layout = 3 output pages
-    assert_eq!(output.get_pages().len(), 3);
+    assert_eq!(output.document.get_pages().len(), 3);
 }
 
 #[tokio::test]
@@ -120,12 +120,12 @@ async fn test_generate_preview_octavo() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.page_arrangement = PageArrangement::Octavo;
 
-    let preview = generate_preview(&[doc], &options, 2).await;
+    let preview = generate_preview(&[doc], &options, Some(2)).await;
     assert!(preview.is_ok());
 
     let output = preview.unwrap();
     // 32 pages with Octavo (16 per signature) = 2 signatures
     // Each signature = 1 sheet with 2 output pages (front + back)
     // 2 signatures × 2 output pages = 4 output pages total
-    assert_eq!(output.get_pages().len(), 4);
+    assert_eq!(output.document.get_pages().len(), 4);
 }

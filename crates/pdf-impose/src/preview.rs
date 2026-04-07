@@ -9,29 +9,54 @@ use crate::types::*;
 use lopdf::{Dictionary, Document, Object};
 use std::collections::HashMap;
 
+/// Result of preview generation, including truncation metadata.
+pub struct PreviewResult {
+    /// The imposed preview document
+    pub document: Document,
+    /// How many signatures are represented in the preview
+    pub signatures_shown: usize,
+}
+
+/// Maximum output sheets to render in a preview.
+///
+/// The actual signature limit is derived from this based on sheets_per_signature,
+/// so simpler arrangements (folio) show more signatures than complex ones (octavo).
+const MAX_PREVIEW_SHEETS: usize = 16;
+
 /// Generate a preview of the imposition
 ///
-/// Returns a document with a limited number of sheets for preview.
+/// Returns an imposed document limited to `max_signatures` complete signatures.
+/// If `None`, a smart default is computed targeting ~[`MAX_PREVIEW_SHEETS`] output sheets.
 pub async fn generate_preview(
     documents: &[Document],
     options: &ImpositionOptions,
-    max_sheets: usize,
-) -> Result<Document> {
-    // Calculate how many source pages we need for the preview
-    let pages_per_sig = options.pages_per_signature();
-    let source_pages_needed = if options.binding_type.uses_signatures() {
-        // Show max_sheets signatures
-        max_sheets * pages_per_sig
+    max_signatures: Option<usize>,
+) -> Result<PreviewResult> {
+    let total_source_pages: usize = documents.iter().map(|d| d.get_pages().len()).sum();
+
+    let (source_pages_needed, signatures_shown) = if options.binding_type.uses_signatures() {
+        let pages_per_sig = options.pages_per_signature();
+        let effective_max = max_signatures.unwrap_or_else(|| {
+            (MAX_PREVIEW_SHEETS / options.sheets_per_signature).max(1)
+        });
+        let total_sigs = (total_source_pages + pages_per_sig - 1) / pages_per_sig;
+        let sigs = total_sigs.min(effective_max);
+        (sigs * pages_per_sig, sigs)
     } else {
-        // Show max_sheets worth of pages (2 per sheet)
-        max_sheets * 2
+        let pages_needed = max_signatures.unwrap_or(MAX_PREVIEW_SHEETS) * 2;
+        let sigs = pages_needed.min(total_source_pages);
+        (sigs, 0)
     };
 
     // Create preview documents with limited pages
     let preview_docs = limit_document_pages(documents, source_pages_needed)?;
 
     // Impose with limited pages
-    impose(&preview_docs, options).await
+    let document = impose(&preview_docs, options).await?;
+    Ok(PreviewResult {
+        document,
+        signatures_shown,
+    })
 }
 
 /// Limit documents to a maximum number of pages
