@@ -406,9 +406,18 @@ pub fn show_viewer(
             }
 
             let scroll_output = scroll_area.show(ui, |ui| {
-                ui.centered_and_justified(|ui| {
-                    ui.image(egui::load::SizedTexture::new(texture.id(), display_size));
-                });
+                let available = ui.available_size();
+                let content_size = egui::vec2(
+                    display_size.x.max(available.x),
+                    display_size.y.max(available.y),
+                );
+                ui.allocate_ui_with_layout(
+                    content_size,
+                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                    |ui| {
+                        ui.image(egui::load::SizedTexture::new(texture.id(), display_size));
+                    },
+                );
             });
 
             // Record scroll state for position preservation on next zoom change

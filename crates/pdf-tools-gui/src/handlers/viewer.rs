@@ -3,10 +3,24 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 #[cfg(feature = "pdf-viewer")]
-use crate::viewer::{CachedPage, ViewerState, init_pdfium, make_render_config, quantize_zoom};
+use crate::viewer::{
+    CachedPage, DocumentSource, ViewerState, init_pdfium, make_render_config, quantize_zoom,
+};
 
 #[cfg(feature = "pdf-viewer")]
 use pdfium_render::prelude::*;
+
+/// Load a PDF document from a `DocumentSource` using the given Pdfium instance.
+#[cfg(feature = "pdf-viewer")]
+fn load_document<'a>(
+    pdfium: &'a Pdfium,
+    source: &DocumentSource,
+) -> Result<PdfDocument<'a>, PdfiumError> {
+    match source {
+        DocumentSource::File(path) => pdfium.load_pdf_from_file(path, None),
+        DocumentSource::Bytes(bytes) => pdfium.load_pdf_from_byte_vec(bytes.clone(), None),
+    }
+}
 
 #[cfg(feature = "pdf-viewer")]
 pub async fn handle_load(
@@ -47,6 +61,21 @@ pub async fn handle_load(
 }
 
 #[cfg(feature = "pdf-viewer")]
+pub async fn handle_load_bytes(
+    pdf_bytes: Vec<u8>,
+    page_count: usize,
+    state: &mut ViewerState,
+    update_tx: &mpsc::UnboundedSender<PdfUpdate>,
+) {
+    let doc_id = state.next_id();
+    state.add_document_bytes(doc_id, pdf_bytes);
+    let _ = update_tx.send(PdfUpdate::ViewerLoaded {
+        doc_id,
+        page_count,
+    });
+}
+
+#[cfg(feature = "pdf-viewer")]
 pub async fn handle_render_page(
     doc_id: DocumentId,
     page_index: usize,
@@ -71,11 +100,11 @@ pub async fn handle_render_page(
             page_width_pts: 0.0,
             page_height_pts: 0.0,
         });
-    } else if let Some(pdf_path) = state.get_document(&doc_id).cloned() {
+    } else if let Some(source) = state.get_document(&doc_id).cloned() {
         // Not in cache, need to render
         match tokio::task::spawn_blocking(move || {
             let pdfium = init_pdfium()?;
-            let document = pdfium.load_pdf_from_file(&pdf_path, None)?;
+            let document = load_document(&pdfium, &source)?;
             let page = document.pages().get(page_index as u16)?;
 
             let page_width_pts = page.width().value;
@@ -151,11 +180,11 @@ pub async fn handle_prefetch_pages(
             continue;
         }
 
-        if let Some(pdf_path) = state.get_document(&doc_id).cloned() {
+        if let Some(source) = state.get_document(&doc_id).cloned() {
             // Render to cache silently (no UI update)
             match tokio::task::spawn_blocking(move || {
                 let pdfium = init_pdfium()?;
-                let document = pdfium.load_pdf_from_file(&pdf_path, None)?;
+                let document = load_document(&pdfium, &source)?;
                 let page = document.pages().get(page_index as u16)?;
 
                 let page_width_pts = page.width().value;
