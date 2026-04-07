@@ -62,6 +62,8 @@ impl MeasurementSystem {
     }
 }
 
+use crate::types::{FlashcardError, Result};
+
 #[derive(Debug, Clone)]
 pub struct FlashcardOptions {
     pub page_width_mm: f32,
@@ -96,5 +98,31 @@ impl Default for FlashcardOptions {
             column_spacing_mm: 5.0,
             font_size_pt: 12.0,
         }
+    }
+}
+
+impl FlashcardOptions {
+    pub fn validate(&self) -> Result<()> {
+        if self.rows == 0 {
+            return Err(FlashcardError::Pdf("rows must be at least 1".into()));
+        }
+        if self.columns == 0 {
+            return Err(FlashcardError::Pdf("columns must be at least 1".into()));
+        }
+        if self.card_width_mm <= 0.0 {
+            return Err(FlashcardError::Pdf("card width must be positive".into()));
+        }
+        if self.card_height_mm <= 0.0 {
+            return Err(FlashcardError::Pdf("card height must be positive".into()));
+        }
+        if self.font_size_pt <= 0.0 {
+            return Err(FlashcardError::Pdf("font size must be positive".into()));
+        }
+        if self.page_width_mm <= 0.0 || self.page_height_mm <= 0.0 {
+            return Err(FlashcardError::Pdf(
+                "page dimensions must be positive".into(),
+            ));
+        }
+        Ok(())
     }
 }

@@ -464,11 +464,63 @@ pub enum SplitMode {
 }
 
 // =============================================================================
+// Warnings
+// =============================================================================
+
+/// Warnings about an imposition job that don't prevent it from completing
+#[derive(Debug, Clone, PartialEq)]
+pub enum Warning {
+    /// Blank pages added exceed 25% of the total signature capacity
+    ExcessiveBlankPadding {
+        blank_count: usize,
+        total_pages: usize,
+        percent: f32,
+    },
+    /// Kettle offset is too large for the spine length — sewing marks will be off-page
+    KettleOffsetTooLarge { offset_mm: f32, max_mm: f32 },
+    /// Source page MediaBox could not be parsed; using default Letter dimensions
+    DefaultDimensionsUsed { page_index: usize },
+    /// Flyleaves requested on a document with no pages (no effect)
+    FlyleavesOnEmptyDocument,
+    /// Generic warning
+    Other(String),
+}
+
+impl std::fmt::Display for Warning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Warning::ExcessiveBlankPadding {
+                blank_count,
+                total_pages,
+                percent,
+            } => write!(
+                f,
+                "{blank_count} blank pages added ({percent:.0}% of {total_pages} total) \
+                 — consider adjusting content length or page arrangement"
+            ),
+            Warning::KettleOffsetTooLarge { offset_mm, max_mm } => write!(
+                f,
+                "Kettle stitch offset ({offset_mm:.1}mm) exceeds half the spine length \
+                 ({max_mm:.1}mm) — sewing marks will be positioned off-page"
+            ),
+            Warning::DefaultDimensionsUsed { page_index } => write!(
+                f,
+                "Page {page_index}: could not read page dimensions, using default Letter size (8.5×11in)"
+            ),
+            Warning::FlyleavesOnEmptyDocument => {
+                write!(f, "Flyleaves requested but source document has no pages")
+            }
+            Warning::Other(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+// =============================================================================
 // Statistics
 // =============================================================================
 
 /// Statistics about an imposition job
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImpositionStatistics {
     /// Total number of source pages (including flyleaves)
     pub source_pages: usize,
@@ -482,6 +534,8 @@ pub struct ImpositionStatistics {
     pub output_pages: usize,
     /// Number of blank pages added for padding
     pub blank_pages_added: usize,
+    /// Warnings about potential issues
+    pub warnings: Vec<Warning>,
 }
 
 impl ImpositionStatistics {

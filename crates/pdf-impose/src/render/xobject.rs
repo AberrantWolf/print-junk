@@ -193,10 +193,20 @@ pub fn get_page_dimensions(doc: &Document, page_id: ObjectId) -> Result<(f32, f3
         .and_then(|obj| obj.as_array())
         .ok()
     {
-        let width = extract_number(&mb[2]).unwrap_or(DEFAULT_PAGE_DIMENSIONS.0);
-        let height = extract_number(&mb[3]).unwrap_or(DEFAULT_PAGE_DIMENSIONS.1);
+        let width = extract_number(&mb[2]).unwrap_or_else(|| {
+            log::warn!("Page {:?}: could not parse MediaBox width, using default", page_id);
+            DEFAULT_PAGE_DIMENSIONS.0
+        });
+        let height = extract_number(&mb[3]).unwrap_or_else(|| {
+            log::warn!("Page {:?}: could not parse MediaBox height, using default", page_id);
+            DEFAULT_PAGE_DIMENSIONS.1
+        });
         Ok((width, height))
     } else {
+        log::warn!(
+            "Page {:?}: no MediaBox found, using default Letter dimensions (612×792pt)",
+            page_id
+        );
         Ok(DEFAULT_PAGE_DIMENSIONS)
     }
 }

@@ -4,7 +4,10 @@ use tokio::sync::mpsc;
 
 pub async fn handle_load_csv(input_path: PathBuf, update_tx: &mpsc::UnboundedSender<PdfUpdate>) {
     match pdf_flashcards::load_from_csv(&input_path).await {
-        Ok(cards) => {
+        Ok((cards, warnings)) => {
+            for w in &warnings {
+                log::warn!("Flashcard CSV: {w}");
+            }
             let _ = update_tx.send(PdfUpdate::FlashcardsLoaded { cards });
         }
         Err(e) => {

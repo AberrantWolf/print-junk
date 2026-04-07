@@ -24,6 +24,13 @@ pub fn calculate_statistics(
         return Err(ImposeError::NoPages);
     }
 
+    log::debug!(
+        "Calculating stats: {} source pages, {:?} binding, {:?} arrangement",
+        source_pages,
+        options.binding_type,
+        options.page_arrangement
+    );
+
     if options.binding_type.uses_signatures() {
         calculate_signature_stats(source_pages, options)
     } else {
@@ -49,6 +56,8 @@ fn calculate_signature_stats(
     // Output pages (front and back of each sheet)
     let output_pages = total_sheets * 2;
 
+    let warnings = blank_padding_warnings(blank_pages_added, padded_count);
+
     Ok(ImpositionStatistics {
         source_pages,
         output_sheets: total_sheets,
@@ -56,6 +65,7 @@ fn calculate_signature_stats(
         pages_per_signature: Some(vec![pages_per_sig; num_signatures]),
         output_pages,
         blank_pages_added,
+        warnings,
     })
 }
 
@@ -68,6 +78,8 @@ fn calculate_simple_stats(source_pages: usize) -> Result<ImpositionStatistics> {
     let total_sheets = padded_count / 2;
     let output_pages = total_sheets * 2;
 
+    let warnings = blank_padding_warnings(blank_pages_added, padded_count);
+
     Ok(ImpositionStatistics {
         source_pages,
         output_sheets: total_sheets,
@@ -75,7 +87,24 @@ fn calculate_simple_stats(source_pages: usize) -> Result<ImpositionStatistics> {
         pages_per_signature: None,
         output_pages,
         blank_pages_added,
+        warnings,
     })
+}
+
+/// Generate warnings if blank page padding exceeds 25% of total capacity
+fn blank_padding_warnings(blank_pages_added: usize, padded_count: usize) -> Vec<Warning> {
+    let mut warnings = Vec::new();
+    if padded_count > 0 && blank_pages_added > 0 {
+        let percent = blank_pages_added as f32 / padded_count as f32 * 100.0;
+        if percent > 25.0 {
+            warnings.push(Warning::ExcessiveBlankPadding {
+                blank_count: blank_pages_added,
+                total_pages: padded_count,
+                percent,
+            });
+        }
+    }
+    warnings
 }
 
 /// Round up to the nearest multiple

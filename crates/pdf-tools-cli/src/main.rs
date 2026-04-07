@@ -5,6 +5,10 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "pdft", about = "PDF tools CLI", version)]
 struct Cli {
+    /// Enable verbose diagnostic output
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -22,19 +26,19 @@ enum Commands {
         output: PathBuf,
 
         /// Rows per page
-        #[arg(long, default_value = "2")]
-        rows: usize,
+        #[arg(long, default_value = "2", value_parser = clap::value_parser!(u64).range(1..))]
+        rows: u64,
 
         /// Columns per page
-        #[arg(long, default_value = "3")]
-        columns: usize,
+        #[arg(long, default_value = "3", value_parser = clap::value_parser!(u64).range(1..))]
+        columns: u64,
 
         /// Card width in inches
-        #[arg(long, default_value = "2.5")]
+        #[arg(long, default_value = "2.5", value_parser = positive_f32)]
         card_width_in: f32,
 
         /// Card height in inches
-        #[arg(long, default_value = "3.5")]
+        #[arg(long, default_value = "3.5", value_parser = positive_f32)]
         card_height_in: f32,
     },
 
@@ -113,31 +117,31 @@ enum Commands {
         sewing_stations: usize,
 
         /// Distance from head/tail to kettle stitch holes in mm
-        #[arg(long, default_value = "12.0")]
+        #[arg(long, default_value = "12.0", value_parser = non_negative_f32)]
         kettle_offset: f32,
 
         /// Sheet margin in mm (uniform on all sides)
-        #[arg(long, default_value = "5.0")]
+        #[arg(long, default_value = "5.0", value_parser = non_negative_f32)]
         sheet_margin: f32,
 
         /// Leaf spine/gutter margin in mm (inner edge near binding)
-        #[arg(long, default_value = "0.0")]
+        #[arg(long, default_value = "0.0", value_parser = non_negative_f32)]
         leaf_spine_margin: f32,
 
         /// Leaf fore-edge margin in mm (outer edge)
-        #[arg(long, default_value = "0.0")]
+        #[arg(long, default_value = "0.0", value_parser = non_negative_f32)]
         leaf_fore_edge_margin: f32,
 
         /// Leaf top margin in mm
-        #[arg(long, default_value = "0.0")]
+        #[arg(long, default_value = "0.0", value_parser = non_negative_f32)]
         leaf_top_margin: f32,
 
         /// Leaf bottom margin in mm
-        #[arg(long, default_value = "0.0")]
+        #[arg(long, default_value = "0.0", value_parser = non_negative_f32)]
         leaf_bottom_margin: f32,
 
         /// Trim allowance in mm (extra material around fold edges, trimmed after binding)
-        #[arg(long, default_value = "3.0")]
+        #[arg(long, default_value = "3.0", value_parser = non_negative_f32)]
         trim_allowance: f32,
 
         /// Show statistics only, don't generate PDF
@@ -258,9 +262,37 @@ impl From<ScalingArg> for pdf_impose::ScalingMode {
     }
 }
 
+fn non_negative_f32(s: &str) -> std::result::Result<f32, String> {
+    let v: f32 = s.parse().map_err(|e| format!("{e}"))?;
+    if v < 0.0 {
+        Err("value must not be negative".into())
+    } else {
+        Ok(v)
+    }
+}
+
+fn positive_f32(s: &str) -> std::result::Result<f32, String> {
+    let v: f32 = s.parse().map_err(|e| format!("{e}"))?;
+    if v <= 0.0 {
+        Err("value must be positive".into())
+    } else {
+        Ok(v)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    env_logger::Builder::new()
+        .filter_level(if cli.verbose {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Warn
+        })
+        .format_timestamp(None)
+        .format_target(cli.verbose)
+        .init();
 
     match cli.command {
         Commands::Flashcards {
@@ -271,14 +303,24 @@ async fn main() -> Result<()> {
             card_width_in,
             card_height_in,
         } => {
-            let cards = pdf_flashcards::load_from_csv(&input).await?;
+            let (cards, csv_warnings) = pdf_flashcards::load_from_csv(&input).await?;
+            for w in &csv_warnings {
+                eprintln!("Warning: {w}");
+            }
+
+            if cards.is_empty() {
+                eprintln!("No flashcards to generate");
+                return Ok(());
+            }
+
             let options = pdf_flashcards::FlashcardOptions {
-                rows,
-                columns,
+                rows: rows as usize,
+                columns: columns as usize,
                 card_width_mm: card_width_in * 25.4,
                 card_height_mm: card_height_in * 25.4,
                 ..Default::default()
             };
+            options.validate()?;
             pdf_flashcards::generate_pdf(&cards, &options, &output).await?;
             println!(
                 "Generated {} flashcards → {}",
@@ -360,9 +402,14 @@ async fn main() -> Result<()> {
             println!("  Source pages: {}", stats.source_pages);
             println!("  Output sheets: {}", stats.output_sheets);
             println!("  Output pages: {}", stats.output_pages);
-            println!("  Blank pages added: {}", stats.blank_pages_added);
+            if stats.blank_pages_added > 0 {
+                println!("  Blank pages added: {}", stats.blank_pages_added);
+            }
             if let Some(sigs) = stats.signatures {
                 println!("  Signatures: {}", sigs);
+            }
+            for warning in &stats.warnings {
+                eprintln!("  Warning: {warning}");
             }
 
             if stats_only {

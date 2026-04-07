@@ -131,6 +131,31 @@ impl ImpositionOptions {
             ));
         }
 
+        // Validate non-negative margins
+        let sm = &self.margins.sheet;
+        if sm.top_mm < 0.0 || sm.bottom_mm < 0.0 || sm.left_mm < 0.0 || sm.right_mm < 0.0 {
+            return Err(ImposeError::Config(
+                "Sheet margins must not be negative".to_string(),
+            ));
+        }
+        let lm = &self.margins.leaf;
+        if lm.top_mm < 0.0
+            || lm.bottom_mm < 0.0
+            || lm.fore_edge_mm < 0.0
+            || lm.spine_mm < 0.0
+            || lm.trim_allowance_mm < 0.0
+        {
+            return Err(ImposeError::Config(
+                "Leaf margins and trim allowance must not be negative".to_string(),
+            ));
+        }
+
+        if self.sewing_config.kettle_offset_mm < 0.0 {
+            return Err(ImposeError::Config(
+                "Kettle stitch offset must not be negative".to_string(),
+            ));
+        }
+
         // Validate output format compatibility with binding type
         match (self.binding_type, self.output_format) {
             // Signature and case binding work with all output formats
