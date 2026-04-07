@@ -261,29 +261,18 @@ impl eframe::App for PdfToolsApp {
                         let _ = self.command_tx.send(PdfCommand::ViewerLoad { path });
                     }
                 }
-                PdfUpdate::ImposePreviewGenerated { doc_id, page_count } => {
+                PdfUpdate::ImposePreviewGenerated {
+                    pdf_bytes,
+                    page_count,
+                } => {
                     log::info!("Preview generated with {} pages", page_count);
-                    self.impose_state.preview_doc_id = Some(doc_id);
                     self.impose_state.preview_page_count = page_count;
                     self.progress = None;
 
-                    // Initialize a viewer for the preview with zoom enabled
-                    let preview_viewer = ViewerState {
-                        current_doc_id: Some(doc_id),
-                        current_page: 0,
-                        total_pages: page_count,
-                        page_texture: None,
-                        zoom: Some(ZoomState::default()),
-                        show_close_button: false,
-                    };
-                    self.impose_state.preview_viewer = Some(preview_viewer);
-
-                    // First render at 100%; fit-to-window will adjust on next frame
-                    let _ = self.command_tx.send(PdfCommand::ViewerRenderPage {
-                        doc_id,
-                        page_index: 0,
-                        zoom_level: 1.0,
-                    });
+                    // Load the preview bytes into the viewer (no disk round-trip)
+                    let _ = self
+                        .command_tx
+                        .send(PdfCommand::ViewerLoadBytes { pdf_bytes, page_count });
                 }
                 PdfUpdate::ImposeConfigLoaded { options } => {
                     log::info!("Configuration loaded");

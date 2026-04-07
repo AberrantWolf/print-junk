@@ -39,6 +39,10 @@ pub enum PdfCommand {
     ViewerLoad {
         path: PathBuf,
     },
+    ViewerLoadBytes {
+        pdf_bytes: Vec<u8>,
+        page_count: usize,
+    },
     ViewerRenderPage {
         doc_id: DocumentId,
         page_index: usize,
@@ -80,7 +84,7 @@ pub enum PdfUpdate {
         path: PathBuf,
     },
     ImposePreviewGenerated {
-        doc_id: DocumentId,
+        pdf_bytes: Vec<u8>,
         page_count: usize,
     },
     ImposeConfigLoaded {

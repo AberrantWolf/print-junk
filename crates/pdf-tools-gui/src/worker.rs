@@ -108,6 +108,19 @@ async fn process_command(
             }
         }
         #[cfg(feature = "pdf-viewer")]
+        PdfCommand::ViewerLoadBytes {
+            pdf_bytes,
+            page_count,
+        } => {
+            if let Some(state) = viewer_state {
+                handlers::viewer::handle_load_bytes(pdf_bytes, page_count, state, update_tx).await;
+            } else {
+                let _ = update_tx.send(PdfUpdate::Error {
+                    message: "PDF viewer not initialized".to_string(),
+                });
+            }
+        }
+        #[cfg(feature = "pdf-viewer")]
         PdfCommand::ViewerRenderPage {
             mut doc_id,
             mut page_index,
@@ -167,6 +180,7 @@ async fn process_command(
         }
         #[cfg(not(feature = "pdf-viewer"))]
         PdfCommand::ViewerLoad { .. }
+        | PdfCommand::ViewerLoadBytes { .. }
         | PdfCommand::ViewerRenderPage { .. }
         | PdfCommand::ViewerPrefetchPages { .. }
         | PdfCommand::ViewerClose { .. } => {
