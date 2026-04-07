@@ -53,10 +53,22 @@ impl PdfToolsApp {
         logger.clone().init().expect("Failed to initialize logger");
 
         let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (worker_update_tx, mut worker_update_rx) = mpsc::unbounded_channel();
         let (update_tx, update_rx) = mpsc::unbounded_channel();
 
+        // Forward worker updates to the app channel, requesting repaint on each
+        let repaint_ctx = _cc.egui_ctx.clone();
+        tokio_handle.spawn(async move {
+            while let Some(update) = worker_update_rx.recv().await {
+                if update_tx.send(update).is_err() {
+                    break;
+                }
+                repaint_ctx.request_repaint();
+            }
+        });
+
         // Spawn worker task
-        tokio_handle.spawn(crate::worker::worker_task(command_rx, update_tx));
+        tokio_handle.spawn(crate::worker::worker_task(command_rx, worker_update_tx));
 
         log::info!("PDF Tools GUI started");
 
@@ -80,10 +92,22 @@ impl PdfToolsApp {
         logger.clone().init().expect("Failed to initialize logger");
 
         let (command_tx, command_rx) = mpsc::unbounded_channel();
+        let (worker_update_tx, mut worker_update_rx) = mpsc::unbounded_channel();
         let (update_tx, update_rx) = mpsc::unbounded_channel();
 
+        // Forward worker updates to the app channel, requesting repaint on each
+        let repaint_ctx = _cc.egui_ctx.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            while let Some(update) = worker_update_rx.recv().await {
+                if update_tx.send(update).is_err() {
+                    break;
+                }
+                repaint_ctx.request_repaint();
+            }
+        });
+
         // Spawn worker task using wasm-bindgen-futures
-        wasm_bindgen_futures::spawn_local(crate::worker::worker_task(command_rx, update_tx));
+        wasm_bindgen_futures::spawn_local(crate::worker::worker_task(command_rx, worker_update_tx));
 
         log::info!("PDF Tools GUI started");
 
@@ -231,7 +255,6 @@ impl eframe::App for PdfToolsApp {
                         current,
                         total,
                     });
-                    ctx.request_repaint(); // Request another frame
                 }
                 PdfUpdate::FlashcardsLoaded { cards } => {
                     log::info!("Loaded {} flashcards from CSV", cards.len());
