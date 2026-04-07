@@ -103,21 +103,120 @@ impl PdfToolsApp {
 
 impl eframe::App for PdfToolsApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Handle drag-and-drop for PDF files
-        ctx.input(|i| {
-            if !i.raw.dropped_files.is_empty() {
-                for file in &i.raw.dropped_files {
-                    if let Some(path) = &file.path {
-                        if path.extension().and_then(|s| s.to_str()) == Some("pdf") {
+        // Handle drag-and-drop routed by current mode
+        let dropped: Vec<_> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .filter_map(|f| f.path.clone())
+                .collect()
+        });
+        for path in dropped {
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            match self.mode {
+                Mode::Impose if ext == "pdf" => {
+                    if !self.impose_state.options.input_files.contains(&path) {
+                        log::info!("Adding PDF to impose inputs: {}", path.display());
+                        self.impose_state.options.input_files.push(path);
+                        self.impose_state.needs_regeneration = true;
+                    }
+                }
+                Mode::Flashcards if ext == "csv" => {
+                    log::info!("Loading CSV: {}", path.display());
+                    self.flashcard_state.csv_path = path.display().to_string();
+                    let _ = self
+                        .command_tx
+                        .send(PdfCommand::FlashcardsLoadCsv { input_path: path });
+                }
+                _ if ext == "pdf" => {
+                    log::info!("Loading PDF: {}", path.display());
+                    let _ = self
+                        .command_tx
+                        .send(PdfCommand::ViewerLoad { path });
+                }
+                _ => {}
+            }
+        }
+
+        // Global keyboard shortcuts: Cmd+O (open), Cmd+S (save)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let cmd_o = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::O));
+            let cmd_s = ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S));
+
+            if cmd_o {
+                match self.mode {
+                    Mode::Viewer => {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .pick_file()
+                        {
+                            log::info!("Loading PDF: {}", path.display());
+                            let _ = self.command_tx.send(PdfCommand::ViewerLoad { path });
+                        }
+                    }
+                    Mode::Impose => {
+                        if let Some(paths) = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .pick_files()
+                        {
+                            for path in paths {
+                                if !self.impose_state.options.input_files.contains(&path) {
+                                    self.impose_state.options.input_files.push(path);
+                                    self.impose_state.needs_regeneration = true;
+                                }
+                            }
+                        }
+                    }
+                    Mode::Flashcards => {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("CSV", &["csv"])
+                            .pick_file()
+                        {
+                            self.flashcard_state.csv_path = path.display().to_string();
+                            log::info!("Loading CSV: {}", path.display());
                             let _ = self
                                 .command_tx
-                                .send(PdfCommand::ViewerLoad { path: path.clone() });
-                            log::info!("Loading PDF: {}", path.display());
+                                .send(PdfCommand::FlashcardsLoadCsv { input_path: path });
                         }
                     }
                 }
             }
-        });
+
+            if cmd_s {
+                match self.mode {
+                    Mode::Impose if !self.impose_state.options.input_files.is_empty() => {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .set_file_name("imposed.pdf")
+                            .save_file()
+                        {
+                            log::info!("Saving imposed PDF to: {}", path.display());
+                            let _ = self.command_tx.send(PdfCommand::ImposeGenerate {
+                                options: self.impose_state.options.clone(),
+                                output_path: path,
+                            });
+                        }
+                    }
+                    Mode::Flashcards if !self.flashcard_state.cards.is_empty() => {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("PDF", &["pdf"])
+                            .set_file_name("flashcards.pdf")
+                            .save_file()
+                        {
+                            log::info!("Saving flashcards to: {}", path.display());
+                            let options = self.flashcard_state.to_options();
+                            let _ = self.command_tx.send(PdfCommand::FlashcardsGenerate {
+                                cards: self.flashcard_state.cards.clone(),
+                                options,
+                                output_path: path,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         // Process all pending updates from worker
         while let Ok(update) = self.update_rx.try_recv() {
@@ -138,6 +237,7 @@ impl eframe::App for PdfToolsApp {
                     log::info!("Loaded {} flashcards from CSV", cards.len());
                     self.progress = None;
                     self.flashcard_state.cards = cards;
+                    self.flashcard_state.needs_regeneration = true;
                 }
                 PdfUpdate::FlashcardsComplete { path, card_count } => {
                     log::info!("Generated {} flashcards → {}", card_count, path.display());
