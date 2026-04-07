@@ -29,6 +29,7 @@ pub(crate) fn render_sheet_spreads(
     options: &ImpositionOptions,
     signature_index: usize,
     total_signatures: usize,
+    sheet_in_signature: usize,
 ) -> Result<ObjectId> {
     let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);
 
@@ -79,6 +80,8 @@ pub(crate) fn render_sheet_spreads(
             signature_index,
             total_signatures,
             sewing_config: options.sewing_config,
+            sheet_side: layout.side,
+            sheet_in_signature,
         };
         content_ops.push(generate_marks(&options.marks, &marks_config, Some(&marks_ctx)));
     }

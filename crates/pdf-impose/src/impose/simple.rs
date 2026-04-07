@@ -85,6 +85,7 @@ pub(crate) fn impose_simple_binding(
             options,
             0,
             1,
+            0,
         )?;
         page_refs.push(Object::Reference(page_id));
     }
