@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive_ext: tar.gz
+            lib_name: libpdfium.so
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            archive_ext: tar.gz
+            lib_name: libpdfium.dylib
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            archive_ext: tar.gz
+            lib_name: libpdfium.dylib
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive_ext: zip
+            lib_name: pdfium.dll
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libgl1-mesa-dev libgtk-3-dev libatk1.0-dev patchelf
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.target }}-cargo-registry-
+
+      - name: Build release binaries
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          TARGET="${{ matrix.target }}"
+          STAGING="pdf-tools-${VERSION}-${TARGET}"
+          mkdir -p "$STAGING"
+
+          cp "target/${TARGET}/release/pdft" "$STAGING/"
+          cp "target/${TARGET}/release/pdf-tools-gui" "$STAGING/"
+          cp "vendor/pdfium/lib/${{ matrix.lib_name }}" "$STAGING/"
+
+          # Fix rpath so binaries find PDFium in the same directory
+          if [[ "$TARGET" == *"apple"* ]]; then
+            install_name_tool -add_rpath @executable_path "$STAGING/pdf-tools-gui"
+          elif [[ "$TARGET" == *"linux"* ]]; then
+            patchelf --set-rpath '$ORIGIN' "$STAGING/pdf-tools-gui"
+          fi
+
+          tar czf "${STAGING}.tar.gz" "$STAGING"
+          echo "ARCHIVE=${STAGING}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Version = "$env:GITHUB_REF_NAME"
+          $Target = "${{ matrix.target }}"
+          $Staging = "pdf-tools-${Version}-${Target}"
+          New-Item -ItemType Directory -Path $Staging
+
+          Copy-Item "target\${Target}\release\pdft.exe" "$Staging\"
+          Copy-Item "target\${Target}\release\pdf-tools-gui.exe" "$Staging\"
+          Copy-Item "vendor\pdfium\lib\pdfium.dll" "$Staging\"
+
+          Compress-Archive -Path "$Staging\*" -DestinationPath "${Staging}.zip"
+          echo "ARCHIVE=${Staging}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*
