@@ -36,8 +36,8 @@ fn calculate_signature_stats(
     source_pages: usize,
     options: &ImpositionOptions,
 ) -> Result<ImpositionStatistics> {
-    let pages_per_sig = options.page_arrangement.pages_per_signature();
-    let sheets_per_sig = options.page_arrangement.sheets_per_signature();
+    let pages_per_sig = options.pages_per_signature();
+    let sheets_per_sig = options.sheets_per_signature;
 
     // Pad to multiple of pages_per_signature
     let padded_count = round_up_to_multiple(source_pages, pages_per_sig);

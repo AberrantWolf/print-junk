@@ -16,7 +16,7 @@ fn test_arrangement_config_folio() {
     assert_eq!(config.cols, 1);
     assert_eq!(config.rows, 1);
     assert_eq!(config.spread_count, 1);
-    assert_eq!(config.pages_per_signature, 4);
+    assert_eq!(config.pages_per_sheet, 4);
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn test_arrangement_config_quarto() {
     assert_eq!(config.cols, 1);
     assert_eq!(config.rows, 2);
     assert_eq!(config.spread_count, 2);
-    assert_eq!(config.pages_per_signature, 8);
+    assert_eq!(config.pages_per_sheet, 8);
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn test_arrangement_config_octavo() {
     assert_eq!(config.cols, 2);
     assert_eq!(config.rows, 2);
     assert_eq!(config.spread_count, 4);
-    assert_eq!(config.pages_per_signature, 16);
+    assert_eq!(config.pages_per_sheet, 16);
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn test_cut_edges_three_rows() {
         cols: 1,
         rows: 3,
         spread_count: 3,
-        pages_per_signature: 12,
+        pages_per_sheet: 12,
     };
     let edges: Vec<_> = (0..config.spread_count)
         .map(|i| spread_cut_edges(i, config.cols, config.rows))
