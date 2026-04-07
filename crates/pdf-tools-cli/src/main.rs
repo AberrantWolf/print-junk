@@ -52,9 +52,13 @@ enum Commands {
         #[arg(long, default_value = "signature", value_enum)]
         binding: BindingArg,
 
-        /// Page arrangement (pages per signature)
+        /// Page arrangement (fold type)
         #[arg(long, default_value = "folio", value_enum)]
         arrangement: ArrangementArg,
+
+        /// Number of sheets nested per signature
+        #[arg(long, default_value = "1")]
+        sheets_per_signature: usize,
 
         /// Output paper size
         #[arg(long, default_value = "letter", value_enum)]
@@ -288,6 +292,7 @@ async fn main() -> Result<()> {
             output,
             binding,
             arrangement,
+            sheets_per_signature,
             paper,
             orientation,
             format,
@@ -314,6 +319,7 @@ async fn main() -> Result<()> {
                 input_files: input.clone(),
                 binding_type: binding.into(),
                 page_arrangement: arrangement.into(),
+                sheets_per_signature,
                 output_paper_size: paper.into(),
                 output_orientation: orientation.into(),
                 output_format: format.into(),

@@ -16,7 +16,11 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
             ui.add_space(5.0);
 
             if state.options.binding_type.uses_signatures() {
-                if show_arrangement_selector(ui, &mut state.options.page_arrangement) {
+                if show_arrangement_selector(
+                    ui,
+                    &mut state.options.page_arrangement,
+                    &mut state.options.sheets_per_signature,
+                ) {
                     state.needs_regeneration = true;
                 }
             }
@@ -46,15 +50,19 @@ fn show_binding_type_selector(ui: &mut egui::Ui, binding_type: &mut BindingType)
     changed
 }
 
-fn show_arrangement_selector(ui: &mut egui::Ui, arrangement: &mut PageArrangement) -> bool {
+fn show_arrangement_selector(
+    ui: &mut egui::Ui,
+    arrangement: &mut PageArrangement,
+    sheets_per_signature: &mut usize,
+) -> bool {
     let mut changed = false;
 
     ui.label("Page arrangement:");
     ui.horizontal(|ui| {
         let arrangements: &[(PageArrangement, &str, &str)] = &[
-            (PageArrangement::Folio, "Folio (4pp)", "1 fold, 4 pages per signature (2 leaves)"),
-            (PageArrangement::Quarto, "Quarto (8pp)", "2 folds, 8 pages per signature (4 leaves)"),
-            (PageArrangement::Octavo, "Octavo (16pp)", "3 folds, 16 pages per signature (8 leaves)"),
+            (PageArrangement::Folio, "Folio", "1 fold, 4 pages per sheet"),
+            (PageArrangement::Quarto, "Quarto", "2 folds, 8 pages per sheet"),
+            (PageArrangement::Octavo, "Octavo", "3 folds, 16 pages per sheet"),
         ];
         for (value, label, tooltip) in arrangements {
             if ui
@@ -65,38 +73,22 @@ fn show_arrangement_selector(ui: &mut egui::Ui, arrangement: &mut PageArrangemen
                 changed = true;
             }
         }
-
-        // Custom as inline selectable label (matches on variant, not inner value)
-        let is_custom = matches!(arrangement, PageArrangement::Custom { .. });
-        if ui.selectable_label(is_custom, "Custom")
-            .on_hover_text("Specify a custom number of pages per signature")
-            .clicked() && !is_custom {
-            *arrangement = PageArrangement::Custom {
-                pages_per_signature: 12,
-            };
-            changed = true;
-        }
     });
 
-    // Show pages-per-signature editor when Custom is active
-    if let PageArrangement::Custom {
-        pages_per_signature,
-    } = arrangement
-    {
-        ui.horizontal(|ui| {
-            ui.label("Pages per signature:");
-            let mut val = *pages_per_signature as i32;
-            if ui
-                .add(egui::DragValue::new(&mut val).range(4..=256).speed(4.0))
-                .changed()
-            {
-                // Snap to nearest multiple of 4
-                let snapped = ((val + 2) / 4 * 4).clamp(4, 256);
-                *pages_per_signature = snapped as usize;
-                changed = true;
-            }
-        });
-    }
+    ui.horizontal(|ui| {
+        ui.label("Sheets per signature:");
+        let mut val = *sheets_per_signature as i32;
+        if ui
+            .add(egui::DragValue::new(&mut val).range(1..=16).speed(0.1))
+            .changed()
+        {
+            *sheets_per_signature = (val.max(1) as usize).min(16);
+            changed = true;
+        }
+
+        let pages_per_sig = arrangement.pages_per_sheet() * *sheets_per_signature;
+        ui.weak(format!("({} pages/signature)", pages_per_sig));
+    });
 
     changed
 }

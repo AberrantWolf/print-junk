@@ -31,8 +31,8 @@ pub struct ArrangementConfig {
     pub rows: usize,
     /// Total number of spreads
     pub spread_count: usize,
-    /// Number of pages per signature
-    pub pages_per_signature: usize,
+    /// Number of pages per sheet (from the fold type)
+    pub pages_per_sheet: usize,
 }
 
 impl ArrangementConfig {
@@ -43,31 +43,20 @@ impl ArrangementConfig {
                 cols: 1,
                 rows: 1,
                 spread_count: 1,
-                pages_per_signature: 4,
+                pages_per_sheet: 4,
             },
             PageArrangement::Quarto => Self {
                 cols: 1,
                 rows: 2,
                 spread_count: 2,
-                pages_per_signature: 8,
+                pages_per_sheet: 8,
             },
             PageArrangement::Octavo => Self {
                 cols: 2,
                 rows: 2,
                 spread_count: 4,
-                pages_per_signature: 16,
+                pages_per_sheet: 16,
             },
-            PageArrangement::Custom {
-                pages_per_signature,
-            } => {
-                // Treat custom as folio-like (single spread per sheet)
-                Self {
-                    cols: 1,
-                    rows: 1,
-                    spread_count: 1,
-                    pages_per_signature,
-                }
-            }
         }
     }
 }
@@ -103,10 +92,6 @@ pub fn calculate_spread_positions(
         PageArrangement::Folio => vec![create_folio_spread(leaf_bounds)],
         PageArrangement::Quarto => create_quarto_spreads(leaf_bounds, cut_gap),
         PageArrangement::Octavo => create_octavo_spreads(leaf_bounds, cut_gap, cut_gap),
-        PageArrangement::Custom { .. } => {
-            // Custom uses folio layout
-            vec![create_folio_spread(leaf_bounds)]
-        }
     }
 }
 
@@ -188,7 +173,6 @@ impl CutPositions {
                     horizontal: vec![mid_y],
                 }
             }
-            PageArrangement::Custom { .. } => CutPositions::default(),
         }
     }
 

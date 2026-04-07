@@ -21,45 +21,29 @@ fn test_validation_no_input_files() {
 }
 
 #[test]
-fn test_validation_invalid_pages_per_signature() {
+fn test_validation_sheets_per_signature() {
     let mut options = ImpositionOptions::default();
     options.input_files.push(PathBuf::from("test.pdf"));
 
-    // Valid: 4 pages per signature
+    // Valid: all standard arrangements with 1 sheet
+    for arrangement in [
+        PageArrangement::Folio,
+        PageArrangement::Quarto,
+        PageArrangement::Octavo,
+    ] {
+        options.page_arrangement = arrangement;
+        options.sheets_per_signature = 1;
+        assert!(options.validate().is_ok());
+    }
+
+    // Valid: folio with 3 sheets (12 pages per signature)
     options.page_arrangement = PageArrangement::Folio;
+    options.sheets_per_signature = 3;
     assert!(options.validate().is_ok());
 
-    // Valid: 8 pages per signature
-    options.page_arrangement = PageArrangement::Quarto;
-    assert!(options.validate().is_ok());
-
-    // Valid: 16 pages per signature
-    options.page_arrangement = PageArrangement::Octavo;
-    assert!(options.validate().is_ok());
-
-    // Invalid: 0 pages
-    options.page_arrangement = PageArrangement::Custom {
-        pages_per_signature: 0,
-    };
+    // Invalid: 0 sheets
+    options.sheets_per_signature = 0;
     assert!(options.validate().is_err());
-
-    // Invalid: not multiple of 4
-    options.page_arrangement = PageArrangement::Custom {
-        pages_per_signature: 6,
-    };
-    assert!(options.validate().is_err());
-
-    // Invalid: not multiple of 4
-    options.page_arrangement = PageArrangement::Custom {
-        pages_per_signature: 3,
-    };
-    assert!(options.validate().is_err());
-
-    // Valid: 12 pages (multiple of 4)
-    options.page_arrangement = PageArrangement::Custom {
-        pages_per_signature: 12,
-    };
-    assert!(options.validate().is_ok());
 }
 
 #[cfg(feature = "serde")]
@@ -71,6 +55,7 @@ async fn test_save_and_load_options() {
     options.input_files.push(PathBuf::from("input.pdf"));
     options.binding_type = BindingType::PerfectBinding;
     options.page_arrangement = PageArrangement::Octavo;
+    options.sheets_per_signature = 2;
     options.output_paper_size = PaperSize::A4;
     options.front_flyleaves = 2;
     options.back_flyleaves = 1;
@@ -88,6 +73,7 @@ async fn test_save_and_load_options() {
     assert_eq!(loaded.input_files, options.input_files);
     assert_eq!(loaded.binding_type, options.binding_type);
     assert_eq!(loaded.page_arrangement, options.page_arrangement);
+    assert_eq!(loaded.sheets_per_signature, options.sheets_per_signature);
     assert_eq!(loaded.output_paper_size, options.output_paper_size);
     assert_eq!(loaded.front_flyleaves, options.front_flyleaves);
     assert_eq!(loaded.back_flyleaves, options.back_flyleaves);

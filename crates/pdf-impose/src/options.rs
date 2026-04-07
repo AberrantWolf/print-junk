@@ -18,6 +18,8 @@ pub struct ImpositionOptions {
     // Binding and arrangement
     pub binding_type: BindingType,
     pub page_arrangement: PageArrangement,
+    /// Number of sheets nested together per signature (default: 1)
+    pub sheets_per_signature: usize,
 
     // Output configuration
     pub output_paper_size: PaperSize,
@@ -55,6 +57,7 @@ impl Default for ImpositionOptions {
             input_files: Vec::new(),
             binding_type: BindingType::Signature,
             page_arrangement: PageArrangement::Quarto,
+            sheets_per_signature: 1,
             output_paper_size: PaperSize::Letter,
             output_orientation: Orientation::Landscape,
             output_format: OutputFormat::DoubleSided,
@@ -73,6 +76,11 @@ impl Default for ImpositionOptions {
 }
 
 impl ImpositionOptions {
+    /// Total pages per signature (pages_per_sheet × sheets_per_signature)
+    pub fn pages_per_signature(&self) -> usize {
+        self.page_arrangement.pages_per_sheet() * self.sheets_per_signature
+    }
+
     /// Load options from JSON file
     #[cfg(feature = "serde")]
     pub async fn load(path: impl AsRef<std::path::Path>) -> Result<Self> {
@@ -117,10 +125,9 @@ impl ImpositionOptions {
             return Err(ImposeError::Config("No input files specified".to_string()));
         }
 
-        let pages_per_sig = self.page_arrangement.pages_per_signature();
-        if pages_per_sig == 0 || pages_per_sig % 4 != 0 {
+        if self.sheets_per_signature == 0 {
             return Err(ImposeError::Config(
-                "Pages per signature must be a multiple of 4".to_string(),
+                "Sheets per signature must be at least 1".to_string(),
             ));
         }
 
@@ -228,19 +235,12 @@ mod serde_impls {
         where
             S: serde::Serializer,
         {
-            use serde::ser::SerializeStruct;
-            match self {
-                PageArrangement::Folio => serializer.serialize_str("Folio"),
-                PageArrangement::Quarto => serializer.serialize_str("Quarto"),
-                PageArrangement::Octavo => serializer.serialize_str("Octavo"),
-                PageArrangement::Custom {
-                    pages_per_signature,
-                } => {
-                    let mut s = serializer.serialize_struct("Custom", 1)?;
-                    s.serialize_field("pages_per_signature", pages_per_signature)?;
-                    s.end()
-                }
-            }
+            let s = match self {
+                PageArrangement::Folio => "Folio",
+                PageArrangement::Quarto => "Quarto",
+                PageArrangement::Octavo => "Octavo",
+            };
+            serializer.serialize_str(s)
         }
     }
 
@@ -249,60 +249,16 @@ mod serde_impls {
         where
             D: serde::Deserializer<'de>,
         {
-            use serde::de::{self, MapAccess, Visitor};
-            use std::fmt;
-
-            struct PageArrangementVisitor;
-
-            impl<'de> Visitor<'de> for PageArrangementVisitor {
-                type Value = PageArrangement;
-
-                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("a page arrangement type")
-                }
-
-                fn visit_str<E>(self, value: &str) -> std::result::Result<PageArrangement, E>
-                where
-                    E: de::Error,
-                {
-                    match value {
-                        "Folio" => Ok(PageArrangement::Folio),
-                        "Quarto" => Ok(PageArrangement::Quarto),
-                        "Octavo" => Ok(PageArrangement::Octavo),
-                        _ => Err(de::Error::unknown_variant(
-                            value,
-                            &["Folio", "Quarto", "Octavo", "Custom"],
-                        )),
-                    }
-                }
-
-                fn visit_map<M>(self, mut map: M) -> std::result::Result<PageArrangement, M::Error>
-                where
-                    M: MapAccess<'de>,
-                {
-                    let mut pages_per_signature = None;
-                    while let Some(key) = map.next_key::<String>()? {
-                        match key.as_str() {
-                            "pages_per_signature" => {
-                                pages_per_signature = Some(map.next_value()?);
-                            }
-                            _ => {
-                                let _: serde::de::IgnoredAny = map.next_value()?;
-                            }
-                        }
-                    }
-
-                    if let Some(pps) = pages_per_signature {
-                        Ok(PageArrangement::Custom {
-                            pages_per_signature: pps,
-                        })
-                    } else {
-                        Err(de::Error::missing_field("pages_per_signature"))
-                    }
-                }
+            let s = String::deserialize(deserializer)?;
+            match s.as_str() {
+                "Folio" => Ok(PageArrangement::Folio),
+                "Quarto" => Ok(PageArrangement::Quarto),
+                "Octavo" => Ok(PageArrangement::Octavo),
+                _ => Err(serde::de::Error::unknown_variant(
+                    &s,
+                    &["Folio", "Quarto", "Octavo"],
+                )),
             }
-
-            deserializer.deserialize_any(PageArrangementVisitor)
         }
     }
 

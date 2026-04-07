@@ -70,43 +70,47 @@ impl SignaturePageAssignment {
 
 /// Assign pages to spreads for a signature.
 ///
+/// Returns one `SignaturePageAssignment` per sheet in the signature.
+/// For single-sheet signatures (sheets_per_signature=1), the result
+/// has exactly one element matching the previous behavior.
+///
 /// # Arguments
 /// * `arrangement` - The page arrangement (folio, quarto, octavo)
+/// * `sheets_per_signature` - Number of sheets nested together
 /// * `sig_start` - First page index for this signature (0-based)
 /// * `total_source_pages` - Total number of source pages available
-///
-/// # Returns
-/// Page assignments for front and back sides of the sheet.
 pub fn assign_pages_to_spreads(
     arrangement: PageArrangement,
+    sheets_per_signature: usize,
     sig_start: usize,
     total_source_pages: usize,
-) -> SignaturePageAssignment {
-    // Get the raw page order (0-indexed relative to signature start)
+) -> Vec<SignaturePageAssignment> {
     let (front_order, back_order) = page_order_for_arrangement(arrangement);
+    let pages_per_sheet = arrangement.pages_per_sheet();
 
-    // Convert relative indices to absolute page indices (or None for blanks)
-    let to_spread = |verso_rel: usize, recto_rel: usize| -> Spread {
-        let verso = sig_start
-            .checked_add(verso_rel)
-            .filter(|&idx| idx < total_source_pages);
-        let recto = sig_start
-            .checked_add(recto_rel)
-            .filter(|&idx| idx < total_source_pages);
-        Spread::new(verso, recto)
-    };
+    (0..sheets_per_signature)
+        .map(|sheet_idx| {
+            let remap = build_nesting_remap(sheet_idx, sheets_per_signature, pages_per_sheet);
 
-    let front: Vec<Spread> = front_order
-        .chunks(2)
-        .map(|chunk| to_spread(chunk[0], chunk[1]))
-        .collect();
+            let make_spreads = |order: &[usize]| -> Vec<Spread> {
+                order
+                    .chunks(2)
+                    .map(|chunk| {
+                        let verso_abs = sig_start + remap[chunk[0]];
+                        let recto_abs = sig_start + remap[chunk[1]];
+                        let verso = Some(verso_abs).filter(|&idx| idx < total_source_pages);
+                        let recto = Some(recto_abs).filter(|&idx| idx < total_source_pages);
+                        Spread::new(verso, recto)
+                    })
+                    .collect()
+            };
 
-    let back: Vec<Spread> = back_order
-        .chunks(2)
-        .map(|chunk| to_spread(chunk[0], chunk[1]))
-        .collect();
-
-    SignaturePageAssignment { front, back }
+            SignaturePageAssignment {
+                front: make_spreads(&front_order),
+                back: make_spreads(&back_order),
+            }
+        })
+        .collect()
 }
 
 /// Apply page assignments to spread positions.
@@ -144,9 +148,6 @@ fn page_order_for_arrangement(arrangement: PageArrangement) -> (Vec<usize>, Vec<
         PageArrangement::Folio => folio_page_order(),
         PageArrangement::Quarto => quarto_page_order(),
         PageArrangement::Octavo => octavo_page_order(),
-        PageArrangement::Custom {
-            pages_per_signature,
-        } => custom_page_order(pages_per_signature),
     }
 }
 
@@ -216,30 +217,34 @@ fn octavo_page_order() -> (Vec<usize>, Vec<usize>) {
     )
 }
 
-/// Custom page order using saddle-stitch pattern.
+/// Build a page index remap for saddle-stitch nesting.
 ///
-/// For custom page counts, we use a simple saddle-stitch pattern
-/// where pages are paired from outside to inside.
-fn custom_page_order(pages_per_signature: usize) -> (Vec<usize>, Vec<usize>) {
-    // For simplicity, treat as multiple folios
-    let sheets = pages_per_signature / 4;
-    let mut front = Vec::with_capacity(sheets * 2);
-    let mut back = Vec::with_capacity(sheets * 2);
+/// When multiple sheets are nested together in a signature, the outermost
+/// sheet carries the first and last leaves, the next sheet carries the
+/// next-outermost leaves, and so on.
+///
+/// For sheet `i` (0 = outermost) in an S-sheet signature with P pages per sheet:
+/// - First half of single-sheet indices (0..P/2) map to: `i*(P/2) + j`
+/// - Second half (P/2..P) map to: `S*P - (i+1)*(P/2) + (j - P/2)`
+///
+/// For a single-sheet signature (S=1), this is the identity mapping.
+fn build_nesting_remap(
+    sheet_index: usize,
+    sheets: usize,
+    pages_per_sheet: usize,
+) -> Vec<usize> {
+    let half = pages_per_sheet / 2;
+    let total = sheets * pages_per_sheet;
 
-    for i in 0..sheets {
-        let last = pages_per_signature - 1 - (2 * i);
-        let first = 2 * i;
-
-        // Front: [last, first]
-        front.push(last);
-        front.push(first);
-
-        // Back: [first+1, last-1]
-        back.push(first + 1);
-        back.push(last - 1);
-    }
-
-    (front, back)
+    (0..pages_per_sheet)
+        .map(|j| {
+            if j < half {
+                sheet_index * half + j
+            } else {
+                total - (sheet_index + 1) * half + (j - half)
+            }
+        })
+        .collect()
 }
 
 // =============================================================================
@@ -247,16 +252,14 @@ fn custom_page_order(pages_per_signature: usize) -> (Vec<usize>, Vec<usize>) {
 // =============================================================================
 
 /// Calculate the number of signatures needed for a given page count.
-pub fn calculate_signature_count(total_pages: usize, arrangement: PageArrangement) -> usize {
-    let pages_per_sig = arrangement.pages_per_signature();
-    (total_pages + pages_per_sig - 1) / pages_per_sig
+pub fn calculate_signature_count(total_pages: usize, pages_per_signature: usize) -> usize {
+    (total_pages + pages_per_signature - 1) / pages_per_signature
 }
 
 /// Calculate total pages with padding to fill complete signatures.
-pub fn calculate_padded_page_count(total_pages: usize, arrangement: PageArrangement) -> usize {
-    let pages_per_sig = arrangement.pages_per_signature();
-    let signatures = calculate_signature_count(total_pages, arrangement);
-    signatures * pages_per_sig
+pub fn calculate_padded_page_count(total_pages: usize, pages_per_signature: usize) -> usize {
+    let signatures = calculate_signature_count(total_pages, pages_per_signature);
+    signatures * pages_per_signature
 }
 
 #[cfg(test)]

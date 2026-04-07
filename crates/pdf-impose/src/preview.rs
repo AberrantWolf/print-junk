@@ -18,7 +18,7 @@ pub async fn generate_preview(
     max_sheets: usize,
 ) -> Result<Document> {
     // Calculate how many source pages we need for the preview
-    let pages_per_sig = options.page_arrangement.pages_per_signature();
+    let pages_per_sig = options.pages_per_signature();
     let source_pages_needed = if options.binding_type.uses_signatures() {
         // Show max_sheets signatures
         max_sheets * pages_per_sig

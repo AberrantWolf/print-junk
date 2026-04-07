@@ -164,8 +164,10 @@ impl BindingType {
 
 /// Page arrangement within a signature
 ///
-/// Determines how many pages fit on each sheet and how they're folded.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Determines how each sheet is folded. The number of sheets nested
+/// together per signature is configured separately via `sheets_per_signature`
+/// on `ImpositionOptions`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum PageArrangement {
     /// Folio: 4 pages per sheet (1 fold)
     /// Grid: 2 columns × 1 row
@@ -177,26 +179,16 @@ pub enum PageArrangement {
     /// Octavo: 16 pages per sheet (3 folds)
     /// Grid: 4 columns × 2 rows
     Octavo,
-    /// Custom pages per signature (must be multiple of 4)
-    Custom { pages_per_signature: usize },
 }
 
 impl PageArrangement {
-    /// Number of pages per signature
-    pub fn pages_per_signature(self) -> usize {
+    /// Number of pages produced by folding a single sheet
+    pub fn pages_per_sheet(self) -> usize {
         match self {
             PageArrangement::Folio => 4,
             PageArrangement::Quarto => 8,
             PageArrangement::Octavo => 16,
-            PageArrangement::Custom {
-                pages_per_signature,
-            } => pages_per_signature,
         }
-    }
-
-    /// Number of sheets per signature
-    pub fn sheets_per_signature(self) -> usize {
-        self.pages_per_signature() / 4
     }
 
     /// Grid dimensions (columns, rows) for this arrangement
@@ -205,18 +197,6 @@ impl PageArrangement {
             PageArrangement::Folio => (2, 1),
             PageArrangement::Quarto => (2, 2),
             PageArrangement::Octavo => (4, 2),
-            PageArrangement::Custom {
-                pages_per_signature,
-            } => {
-                let pages_per_side = pages_per_signature / 2;
-                if pages_per_side <= 2 {
-                    (2, 1)
-                } else if pages_per_side <= 4 {
-                    (2, 2)
-                } else {
-                    (4, (pages_per_side + 3) / 4)
-                }
-            }
         }
     }
 }
