@@ -16,12 +16,9 @@ pub fn show(
 
         ui.add_space(10.0);
 
-        show_preview_button(ui, state, command_tx);
-
-        ui.add_space(5.0);
-
         show_generate_button(ui, state, command_tx);
 
+        // Auto-regenerate preview when settings change
         if state.needs_regeneration && !state.options.input_files.is_empty() {
             generate_preview(state, command_tx);
         }
@@ -76,21 +73,6 @@ fn load_configuration(command_tx: &mpsc::UnboundedSender<PdfCommand>) {
         .pick_file()
     {
         let _ = command_tx.send(PdfCommand::ImposeLoadConfig { path });
-    }
-}
-
-fn show_preview_button(
-    ui: &mut egui::Ui,
-    state: &mut ImposeState,
-    command_tx: &mpsc::UnboundedSender<PdfCommand>,
-) {
-    let can_generate = !state.options.input_files.is_empty();
-
-    if ui
-        .add_enabled(can_generate, egui::Button::new("📄 Generate Preview"))
-        .clicked()
-    {
-        generate_preview(state, command_tx);
     }
 }
 

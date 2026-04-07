@@ -5,7 +5,7 @@
 //! `impose/sheet.rs` internally.
 
 use crate::layout::{PagePlacement, Rect};
-use crate::marks::{ContentBounds, MarksConfig, generate_marks};
+use crate::marks::{MarksConfig, generate_marks};
 use crate::types::{PrinterMarks, Result};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::HashMap;
@@ -32,10 +32,8 @@ use super::xobject::create_page_xobject;
 /// * `parent_pages_id` - The parent Pages object ID
 /// * `marks` - Printer's marks configuration
 /// * `leaf_bounds` - The leaf area bounds (for marks)
-/// * `grid_cols` - Number of columns in the grid
-/// * `grid_rows` - Number of rows in the grid
-/// * `cell_width` - Width of each cell in points
-/// * `cell_height` - Height of each cell in points
+/// * `grid_cols` - Number of spread columns
+/// * `grid_rows` - Number of spread rows
 /// * `add_page_numbers` - Whether to add page numbers
 /// * `page_number_start` - Starting page number
 #[allow(clippy::too_many_arguments)]
@@ -51,8 +49,6 @@ pub fn render_imposed_page(
     leaf_bounds: &Rect,
     grid_cols: usize,
     grid_rows: usize,
-    cell_width: f32,
-    cell_height: f32,
     add_page_numbers: bool,
     page_number_start: usize,
 ) -> Result<ObjectId> {
@@ -74,8 +70,6 @@ pub fn render_imposed_page(
     let mut xobjects = Dictionary::new();
     let mut fonts = Dictionary::new();
     let mut xobject_cache: HashMap<ObjectId, ObjectId> = HashMap::new();
-    let mut content_bounds: Vec<ContentBounds> = Vec::new();
-
     // Render each page placement
     for (idx, placement) in placements.iter().enumerate() {
         if let Some(source_idx) = placement.source_page {
@@ -93,38 +87,13 @@ pub fn render_imposed_page(
                     placement.scale,
                     placement.rotation_degrees,
                 ));
-
-                content_bounds.push(ContentBounds {
-                    x: placement.content_rect.x,
-                    y: placement.content_rect.y,
-                    width: placement.content_rect.width,
-                    height: placement.content_rect.height,
-                });
             }
         }
     }
 
     // Generate printer's marks
     if marks.any_enabled() {
-        // For the standalone API, we don't have binding type context.
-        // Default to Cut boundaries for multi-row/col layouts.
-        let horizontal_boundaries: Vec<usize> = (0..grid_rows.saturating_sub(1)).collect();
-        let vertical_boundaries: Vec<usize> = (0..grid_cols.saturating_sub(1)).collect();
-
-        let marks_config = MarksConfig {
-            cols: grid_cols,
-            rows: grid_rows,
-            cell_width,
-            cell_height,
-            leaf_left: leaf_bounds.x,
-            leaf_bottom: leaf_bounds.y,
-            leaf_right: leaf_bounds.right(),
-            leaf_top: leaf_bounds.top(),
-            content_bounds,
-            vertical_boundaries,
-            horizontal_boundaries,
-            boundary_type: crate::types::BoundaryType::Cut,
-        };
+        let marks_config = MarksConfig::simple(grid_cols, grid_rows, leaf_bounds);
         content_ops.push(generate_marks(marks, &marks_config, None));
     }
 
@@ -134,10 +103,6 @@ pub fn render_imposed_page(
             output,
             placements,
             page_number_start,
-            cell_width,
-            cell_height,
-            leaf_bounds,
-            grid_rows,
         );
         content_ops.push(font_ops);
         fonts.set("F1", Object::Reference(font_id));

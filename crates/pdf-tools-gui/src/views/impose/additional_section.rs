@@ -1,5 +1,5 @@
 use eframe::egui;
-use pdf_impose::{BindingType, SplitMode};
+use pdf_impose::SplitMode;
 
 use super::state::ImposeState;
 
@@ -12,10 +12,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
             }
             ui.add_space(5.0);
 
-            if show_flyleaves(ui, state) {
-                state.needs_regeneration = true;
+            if state.options.binding_type.uses_signatures() {
+                if show_flyleaves(ui, state) {
+                    state.needs_regeneration = true;
+                }
+                ui.add_space(5.0);
             }
-            ui.add_space(5.0);
 
             if show_split_mode(ui, state) {
                 state.needs_regeneration = true;
@@ -46,14 +48,16 @@ fn show_flyleaves(ui: &mut egui::Ui, state: &mut ImposeState) -> bool {
     let mut changed = false;
 
     ui.horizontal(|ui| {
-        ui.label("Front flyleaves:");
+        ui.label("Front flyleaves:")
+            .on_hover_text("Blank pages added at the front of the book");
         changed |= ui
             .add(egui::DragValue::new(&mut state.options.front_flyleaves).range(0..=10))
             .changed();
     });
 
     ui.horizontal(|ui| {
-        ui.label("Back flyleaves:");
+        ui.label("Back flyleaves:")
+            .on_hover_text("Blank pages added at the back of the book");
         changed |= ui
             .add(egui::DragValue::new(&mut state.options.back_flyleaves).range(0..=10))
             .changed();
@@ -108,7 +112,7 @@ fn show_split_mode_selector(ui: &mut egui::Ui, state: &mut ImposeState) -> bool 
             changed = true;
         }
 
-        if is_signature_binding(&state.options.binding_type) {
+        if state.options.binding_type.uses_signatures() {
             if ui
                 .selectable_label(
                     matches!(state.options.split_mode, SplitMode::BySignatures(_)),
@@ -150,8 +154,4 @@ fn show_split_value_editor(ui: &mut egui::Ui, state: &mut ImposeState) -> bool {
         }
         SplitMode::None => false,
     }
-}
-
-fn is_signature_binding(binding: &BindingType) -> bool {
-    matches!(binding, BindingType::Signature | BindingType::CaseBinding)
 }

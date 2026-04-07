@@ -4,7 +4,7 @@ use crate::layout::{
     ArrangementConfig, PagePlacement, SpreadCutEdges, SpreadSheetLayout,
     calculate_spread_placements,
 };
-use crate::marks::{ContentBounds, MarksConfig, MarksContext, generate_marks};
+use crate::marks::{MarksConfig, MarksContext, generate_marks};
 use crate::options::ImpositionOptions;
 use crate::render::{create_page_xobject, render_page_numbers};
 use crate::types::*;
@@ -47,17 +47,6 @@ pub(crate) fn render_sheet_spreads(
         layout.side,
     );
 
-    // Collect content bounds for trim marks
-    let content_bounds: Vec<ContentBounds> = placements
-        .iter()
-        .map(|p| ContentBounds {
-            x: p.content_rect.x,
-            y: p.content_rect.y,
-            width: p.content_rect.width,
-            height: p.content_rect.height,
-        })
-        .collect();
-
     // Render each page placement
     for (idx, placement) in placements.iter().enumerate() {
         if let Some(source_idx) = placement.source_page {
@@ -79,28 +68,12 @@ pub(crate) fn render_sheet_spreads(
     // Generate printer's marks
     if options.marks.any_enabled() {
         let config = ArrangementConfig::for_arrangement(options.page_arrangement);
-
-        // Determine internal boundary positions
-        let horizontal_boundaries: Vec<usize> = (0..config.rows.saturating_sub(1)).collect();
-        let vertical_boundaries: Vec<usize> = (0..config.cols.saturating_sub(1)).collect();
-
-        let cell_width = layout.leaf_bounds.width / config.cols as f32;
-        let cell_height = layout.leaf_bounds.height / config.rows as f32;
-
-        let marks_config = MarksConfig {
-            cols: config.cols,
-            rows: config.rows,
-            cell_width,
-            cell_height,
-            leaf_left: layout.leaf_bounds.x,
-            leaf_bottom: layout.leaf_bounds.y,
-            leaf_right: layout.leaf_bounds.right(),
-            leaf_top: layout.leaf_bounds.top(),
-            content_bounds,
-            vertical_boundaries,
-            horizontal_boundaries,
-            boundary_type: options.binding_type.internal_boundary_type(),
-        };
+        let marks_config = MarksConfig::from_layout(
+            &layout.spreads,
+            &config,
+            &layout.leaf_bounds,
+            crate::constants::mm_to_pt(options.margins.leaf.trim_allowance_mm),
+        );
         let marks_ctx = MarksContext {
             binding_type: options.binding_type,
             signature_index,
@@ -112,18 +85,10 @@ pub(crate) fn render_sheet_spreads(
 
     // Add page numbers
     if options.add_page_numbers {
-        let config = ArrangementConfig::for_arrangement(options.page_arrangement);
-        let cell_width = layout.leaf_bounds.width / config.cols as f32;
-        let cell_height = layout.leaf_bounds.height / config.rows as f32;
-
         let (font_ops, font_id) = render_page_numbers(
             output,
             &placements,
             options.page_number_start,
-            cell_width,
-            cell_height,
-            &layout.leaf_bounds,
-            config.rows,
         );
         content_ops.push(font_ops);
         fonts.set("F1", Object::Reference(font_id));

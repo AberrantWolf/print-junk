@@ -42,9 +42,6 @@ pub const DEFAULT_PAGE_DIMENSIONS: (f32, f32) = (DEFAULT_PAGE_WIDTH_PT, DEFAULT_
 /// Line width for fold lines (points)
 pub const FOLD_LINE_WIDTH: f32 = 0.5;
 
-/// Line width for cut lines (points)
-pub const CUT_LINE_WIDTH: f32 = 0.5;
-
 /// Line width for crop marks (points)
 pub const CROP_MARK_WIDTH: f32 = 0.25;
 
@@ -59,9 +56,6 @@ pub const CROP_MARK_GAP: f32 = 9.0;
 
 /// Size of registration marks (points)
 pub const REGISTRATION_MARK_SIZE: f32 = 10.0;
-
-/// Size of scissors symbol (points)
-pub const SCISSORS_SIZE: f32 = 8.0;
 
 // =============================================================================
 // Sewing & Collation Marks

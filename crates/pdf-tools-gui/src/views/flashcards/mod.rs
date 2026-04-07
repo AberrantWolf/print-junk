@@ -387,18 +387,13 @@ fn show_actions_section(
     state: &mut FlashcardState,
     command_tx: &mpsc::UnboundedSender<PdfCommand>,
 ) {
-    if ui.button("📄 Generate Preview").clicked() && !state.cards.is_empty() {
-        state.needs_regeneration = false;
-        let options = state.to_options();
-        log::info!("Generating flashcard preview");
-        let _ = command_tx.send(PdfCommand::FlashcardsGenerate {
-            cards: state.cards.clone(),
-            options,
-            output_path: std::env::temp_dir().join("flashcards_preview.pdf"),
-        });
-    }
+    let can_generate = !state.cards.is_empty();
 
-    if ui.button("💾 Save PDF...").clicked() && !state.cards.is_empty() {
+    #[cfg(not(target_arch = "wasm32"))]
+    if ui
+        .add_enabled(can_generate, egui::Button::new("💾 Save PDF..."))
+        .clicked()
+    {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("PDF", &["pdf"])
             .set_file_name("flashcards.pdf")
@@ -414,16 +409,24 @@ fn show_actions_section(
         }
     }
 
-    if state.needs_regeneration && !state.cards.is_empty() {
-        let options = state.to_options();
-        log::info!("Regenerating preview due to settings change");
-        let _ = command_tx.send(PdfCommand::FlashcardsGenerate {
-            cards: state.cards.clone(),
-            options,
-            output_path: std::env::temp_dir().join("flashcards_preview.pdf"),
-        });
-        state.needs_regeneration = false;
+    // Auto-regenerate preview when settings change
+    if state.needs_regeneration && can_generate {
+        generate_preview(state, command_tx);
     }
+}
+
+fn generate_preview(
+    state: &mut FlashcardState,
+    command_tx: &mpsc::UnboundedSender<PdfCommand>,
+) {
+    state.needs_regeneration = false;
+    log::info!("Generating flashcard preview");
+    let options = state.to_options();
+    let _ = command_tx.send(PdfCommand::FlashcardsGenerate {
+        cards: state.cards.clone(),
+        options,
+        output_path: std::env::temp_dir().join("flashcards_preview.pdf"),
+    });
 }
 
 fn show_preview_area(

@@ -97,7 +97,7 @@ pub fn calculate_spread_positions(
     leaf_bounds: Rect,
     leaf_margins: &LeafMargins,
 ) -> Vec<SpreadPosition> {
-    let cut_gap = mm_to_pt(leaf_margins.cut_mm);
+    let cut_gap = mm_to_pt(leaf_margins.trim_allowance_mm);
 
     match arrangement {
         PageArrangement::Folio => vec![create_folio_spread(leaf_bounds)],

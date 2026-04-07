@@ -160,30 +160,6 @@ impl BindingType {
         matches!(self, BindingType::Signature | BindingType::CaseBinding)
     }
 
-    /// What type of boundary internal grid lines represent for this binding type.
-    /// Signature/case binding folds the sheet, so internal boundaries are folds.
-    /// Other binding types cut pages apart, so internal boundaries are cuts.
-    pub fn internal_boundary_type(self) -> BoundaryType {
-        if self.uses_signatures() {
-            BoundaryType::Fold
-        } else {
-            BoundaryType::Cut
-        }
-    }
-}
-
-/// Whether an internal grid boundary on the imposed sheet is a fold or a cut.
-///
-/// In signature binding, all internal boundaries are folds — cuts happen at the
-/// edges of the folded signature (head, tail, fore-edge). In non-signature
-/// bindings (perfect, side-stitch, spiral), internal boundaries are cuts because
-/// pages are separated before binding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BoundaryType {
-    /// Paper is folded here (signature/case binding)
-    Fold,
-    /// Paper is cut here (perfect/side-stitch/spiral binding)
-    Cut,
 }
 
 /// Page arrangement within a signature
@@ -315,7 +291,8 @@ impl Rotation {
 /// Sheet margins - printer-safe area around the entire output sheet.
 ///
 /// These margins ensure content stays within the printer's printable area.
-/// Typical home printers need 5-10mm margins; commercial printers may print borderless.
+/// 10mm default ensures printer's marks (crop marks, registration marks) remain visible
+/// even on consumer printers that can't print to the edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SheetMargins {
@@ -327,7 +304,7 @@ pub struct SheetMargins {
 
 impl Default for SheetMargins {
     fn default() -> Self {
-        Self::uniform(5.0)
+        Self::uniform(10.0)
     }
 }
 
@@ -364,8 +341,9 @@ impl SheetMargins {
 /// - Trim space for cutting after folding
 /// - Spine gutter for readability when bound
 /// - Consistent page margins in the final book
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
 pub struct LeafMargins {
     /// Top margin (head) of each leaf
     pub top_mm: f32,
@@ -375,19 +353,31 @@ pub struct LeafMargins {
     pub fore_edge_mm: f32,
     /// Inner margin (spine/gutter) - extra space near the binding
     pub spine_mm: f32,
-    /// Margin around cut lines - space between pages that will be cut apart
-    pub cut_mm: f32,
+    /// Trim allowance - extra material around fold edges, trimmed away after binding (3mm standard)
+    pub trim_allowance_mm: f32,
+}
+
+impl Default for LeafMargins {
+    fn default() -> Self {
+        Self {
+            top_mm: 0.0,
+            bottom_mm: 0.0,
+            fore_edge_mm: 0.0,
+            spine_mm: 0.0,
+            trim_allowance_mm: 3.0,
+        }
+    }
 }
 
 impl LeafMargins {
-    /// Create uniform margins (except spine and cut)
+    /// Create uniform margins (except spine and trim allowance)
     pub fn uniform(margin_mm: f32) -> Self {
         Self {
             top_mm: margin_mm,
             bottom_mm: margin_mm,
             fore_edge_mm: margin_mm,
             spine_mm: margin_mm,
-            cut_mm: 0.0,
+            trim_allowance_mm: 3.0,
         }
     }
 }
@@ -413,14 +403,12 @@ pub struct Margins {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct PrinterMarks {
-    /// Add fold lines (dashed) - where paper should be folded
+    /// Add fold lines (dashed) - where paper should be folded, including spine fold
     pub fold_lines: bool,
-    /// Add cut lines (solid with scissors) - where paper should be cut after folding
-    pub cut_lines: bool,
+    /// Add trim marks (L-shaped marks at inter-spread fold edges for guillotine trimming)
+    pub trim_marks: bool,
     /// Add crop marks (L-shaped corner marks at sheet edges)
     pub crop_marks: bool,
-    /// Add trim marks (L-shaped corner marks at each page boundary)
-    pub trim_marks: bool,
     /// Add registration marks (crosshairs for alignment)
     pub registration_marks: bool,
     /// Add sewing station marks along spine fold (signature/case binding only)
@@ -434,9 +422,8 @@ impl PrinterMarks {
     pub fn all() -> Self {
         Self {
             fold_lines: true,
-            cut_lines: true,
-            crop_marks: true,
             trim_marks: true,
+            crop_marks: true,
             registration_marks: true,
             sewing_marks: true,
             collation_marks: true,
@@ -446,9 +433,8 @@ impl PrinterMarks {
     /// Check if any marks are enabled
     pub fn any_enabled(&self) -> bool {
         self.fold_lines
-            || self.cut_lines
-            || self.crop_marks
             || self.trim_marks
+            || self.crop_marks
             || self.registration_marks
             || self.sewing_marks
             || self.collation_marks

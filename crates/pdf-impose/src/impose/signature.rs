@@ -6,7 +6,6 @@
 //! - Octavo: 4 spreads per side (16 pages per signature)
 
 use super::sheet::render_sheet_spreads;
-use super::{calculate_leaf_bounds, sheet_dimensions_pt};
 use crate::layout::{
     ArrangementConfig, SheetSide, SpreadSheetLayout, apply_page_assignments,
     assign_pages_to_spreads, calculate_cut_edges, calculate_signature_count,
@@ -36,8 +35,8 @@ pub(crate) fn impose_signature_binding(
         .collect();
 
     // Calculate output dimensions and leaf bounds
-    let (output_width_pt, output_height_pt) = sheet_dimensions_pt(options);
-    let leaf_bounds = calculate_leaf_bounds(options, output_width_pt, output_height_pt);
+    let (output_width_pt, output_height_pt) = options.sheet_dimensions_pt();
+    let leaf_bounds = options.leaf_bounds_pt();
 
     // Get cut edges for the arrangement (same for all signatures)
     let cut_edges = calculate_cut_edges(arrangement);

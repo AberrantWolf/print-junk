@@ -6,7 +6,7 @@ fn default_margins() -> LeafMargins {
         bottom_mm: 10.0,
         fore_edge_mm: 15.0,
         spine_mm: 20.0,
-        cut_mm: 5.0,
+        trim_allowance_mm: 5.0,
     }
 }
 

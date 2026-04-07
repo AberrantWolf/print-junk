@@ -1,3 +1,7 @@
+use crate::constants::mm_to_pt;
+use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
+use crate::layout::spread::calculate_spread_content;
+use crate::layout::Rect;
 use crate::types::*;
 use std::path::PathBuf;
 
@@ -87,6 +91,26 @@ impl ImpositionOptions {
         Ok(())
     }
 
+    /// Calculate output sheet dimensions in points
+    pub fn sheet_dimensions_pt(&self) -> (f32, f32) {
+        let (width_mm, height_mm) = self
+            .output_paper_size
+            .dimensions_with_orientation(self.output_orientation);
+        (mm_to_pt(width_mm), mm_to_pt(height_mm))
+    }
+
+    /// Calculate the leaf area bounds (inside sheet margins) in points
+    pub fn leaf_bounds_pt(&self) -> Rect {
+        let (width_pt, height_pt) = self.sheet_dimensions_pt();
+        let margins = &self.margins.sheet;
+        Rect::new(
+            mm_to_pt(margins.left_mm),
+            mm_to_pt(margins.bottom_mm),
+            width_pt - mm_to_pt(margins.left_mm) - mm_to_pt(margins.right_mm),
+            height_pt - mm_to_pt(margins.top_mm) - mm_to_pt(margins.bottom_mm),
+        )
+    }
+
     /// Validate the options
     pub fn validate(&self) -> Result<()> {
         if self.input_files.is_empty() {
@@ -116,6 +140,43 @@ impl ImpositionOptions {
                 )));
             }
             _ => {}
+        }
+
+        // Validate custom paper size minimum
+        if let PaperSize::Custom {
+            width_mm,
+            height_mm,
+        } = self.output_paper_size
+        {
+            if width_mm < 10.0 || height_mm < 10.0 {
+                return Err(ImposeError::Config(
+                    "Custom paper size must be at least 10mm in each dimension".into(),
+                ));
+            }
+        }
+
+        // Validate that sheet margins don't consume all space
+        let leaf_bounds = self.leaf_bounds_pt();
+        if !leaf_bounds.is_valid() {
+            return Err(ImposeError::Config(
+                "Sheet margins are too large for the paper size".into(),
+            ));
+        }
+
+        // Validate effective book page area through the full layout pipeline
+        let spread_positions = calculate_spread_positions(
+            self.page_arrangement,
+            leaf_bounds,
+            &self.margins.leaf,
+        );
+        let cut_edges = calculate_cut_edges(self.page_arrangement);
+        for (spread, cuts) in spread_positions.iter().zip(cut_edges.iter()) {
+            let content = calculate_spread_content(spread, &self.margins.leaf, *cuts);
+            if !content.verso.is_valid() || !content.recto.is_valid() {
+                return Err(ImposeError::Config(
+                    "Margins are too large for the paper size and page arrangement".into(),
+                ));
+            }
         }
 
         Ok(())

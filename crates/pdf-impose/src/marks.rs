@@ -3,35 +3,44 @@
 //! This module generates PDF content stream operations for various printer's marks:
 //! fold lines, crop marks, registration marks, etc.
 //!
-//! Marks are rendered per-leaf (the folded/trimmed unit), not per-page.
+//! All mark positions are derived from actual spread layout data via
+//! `MarksConfig::from_layout()`, ensuring marks always align with page content.
 
 use crate::constants::{
     BEZIER_CIRCLE_FACTOR, COLLATION_MARK_HEIGHT, COLLATION_MARK_WIDTH, CROP_MARK_GAP,
-    CROP_MARK_LENGTH, CROP_MARK_WIDTH, CUT_LINE_WIDTH, FOLD_LINE_WIDTH, REGISTRATION_MARK_SIZE,
-    REGISTRATION_MARK_WIDTH, SCISSORS_SIZE, SEWING_MARK_LENGTH, SEWING_MARK_WIDTH,
+    CROP_MARK_LENGTH, CROP_MARK_WIDTH, FOLD_LINE_WIDTH, REGISTRATION_MARK_SIZE,
+    REGISTRATION_MARK_WIDTH, SEWING_MARK_LENGTH, SEWING_MARK_WIDTH,
 };
 use crate::constants::mm_to_pt;
-use crate::types::{BoundaryType, BindingType, PrinterMarks, SewingConfig};
+use crate::layout::{ArrangementConfig, Rect, SpreadPosition};
+use crate::types::{BindingType, PrinterMarks, SewingConfig};
 
 // =============================================================================
 // Configuration
 // =============================================================================
 
+/// Spine fold position for one spread column, with per-row vertical spans.
+pub struct SpinePosition {
+    /// X coordinate of the spine fold
+    pub x: f32,
+    /// (bottom, top) vertical span for each row in this column
+    pub rows: Vec<(f32, f32)>,
+}
+
 /// Configuration for rendering marks on an imposed sheet.
 ///
-/// The layout hierarchy is:
-/// - Sheet: The entire output page (e.g., Letter, A3)
-/// - Leaf area: The region inside sheet margins where content is placed
-/// - Cells: Individual page positions within the leaf area (arranged in grid)
+/// All positions are pre-computed from actual spread layout data.
+/// This ensures marks are always aligned with page content — the layout
+/// system is the single source of truth for sheet geometry.
 pub struct MarksConfig {
-    /// Number of columns in the page grid
-    pub cols: usize,
-    /// Number of rows in the page grid
-    pub rows: usize,
-    /// Width of each cell (page position) in points
-    pub cell_width: f32,
-    /// Height of each cell (page position) in points
-    pub cell_height: f32,
+    /// Spine fold positions per spread column (with per-row vertical spans)
+    pub spine_positions: Vec<SpinePosition>,
+
+    /// X coordinates of vertical inter-spread boundaries (midpoint of gap)
+    pub vertical_boundary_xs: Vec<f32>,
+    /// Y coordinates of horizontal inter-spread boundaries (midpoint of gap)
+    pub horizontal_boundary_ys: Vec<f32>,
+
     /// Left edge of the leaf area in points (after sheet margins)
     pub leaf_left: f32,
     /// Bottom edge of the leaf area in points (after sheet margins)
@@ -40,38 +49,125 @@ pub struct MarksConfig {
     pub leaf_right: f32,
     /// Top edge of the leaf area in points
     pub leaf_top: f32,
-    /// Content boundaries for each cell (for trim marks)
-    /// Stored in row-major order: row 0 col 0, row 0 col 1, ..., row 1 col 0, ...
-    pub content_bounds: Vec<ContentBounds>,
-    /// Column indices with internal vertical boundaries
-    pub vertical_boundaries: Vec<usize>,
-    /// Row indices with internal horizontal boundaries
-    pub horizontal_boundaries: Vec<usize>,
-    /// Whether internal boundaries are folds or cuts (derived from binding type)
-    pub boundary_type: BoundaryType,
+
+    /// Trim allowance in points (gap at inter-spread boundaries for guillotine trimming)
+    pub trim_allowance_pt: f32,
 }
 
-/// Bounds of actual content within a cell
-#[derive(Clone, Copy, Default)]
-pub struct ContentBounds {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
+impl MarksConfig {
+    /// Build marks configuration from actual spread layout data.
+    ///
+    /// Derives all positions from the spread positions computed by the layout
+    /// system, ensuring marks always align with page content.
+    pub fn from_layout(
+        spreads: &[SpreadPosition],
+        config: &ArrangementConfig,
+        leaf_bounds: &Rect,
+        trim_allowance_pt: f32,
+    ) -> Self {
+        let cols = config.cols;
+        let rows = config.rows;
 
-impl ContentBounds {
-    /// Check if bounds are valid (positive area)
-    pub fn is_valid(&self) -> bool {
-        self.width > 0.0 && self.height > 0.0
+        // Build spine positions from actual spread centers
+        let mut spine_positions = Vec::with_capacity(cols);
+        for col in 0..cols {
+            // Find any spread in this column to get the spine X
+            // All spreads in the same column have the same X origin and width
+            let col_spread = spreads.iter().find(|s| s.spread_index % cols == col);
+            let spine_x = col_spread
+                .map(|s| s.origin.x + s.width / 2.0)
+                .unwrap_or(leaf_bounds.x + leaf_bounds.width / 2.0);
+
+            // Collect per-row vertical spans for this column
+            let mut row_spans = Vec::with_capacity(rows);
+            for row in 0..rows {
+                let spread_idx = row * cols + col;
+                if let Some(s) = spreads.iter().find(|s| s.spread_index == spread_idx) {
+                    row_spans.push((s.origin.y, s.origin.y + s.height));
+                }
+            }
+
+            spine_positions.push(SpinePosition {
+                x: spine_x,
+                rows: row_spans,
+            });
+        }
+
+        // Vertical boundary positions: midpoint between adjacent columns
+        let mut vertical_boundary_xs = Vec::new();
+        for col in 0..(cols.saturating_sub(1)) {
+            let right_spread = spreads.iter().find(|s| s.spread_index % cols == col);
+            let left_next = spreads.iter().find(|s| s.spread_index % cols == col + 1);
+            if let (Some(r), Some(l)) = (right_spread, left_next) {
+                let right_edge = r.origin.x + r.width;
+                let left_edge = l.origin.x;
+                vertical_boundary_xs.push((right_edge + left_edge) / 2.0);
+            }
+        }
+
+        // Horizontal boundary positions: midpoint between adjacent rows
+        let mut horizontal_boundary_ys = Vec::new();
+        for row in 0..(rows.saturating_sub(1)) {
+            let top_spread = spreads.iter().find(|s| s.spread_index / cols == row);
+            let bottom_next = spreads.iter().find(|s| s.spread_index / cols == row + 1);
+            if let (Some(t), Some(b)) = (top_spread, bottom_next) {
+                let top_edge = t.origin.y + t.height;
+                let bottom_edge = b.origin.y;
+                horizontal_boundary_ys.push((top_edge + bottom_edge) / 2.0);
+            }
+        }
+
+        Self {
+            spine_positions,
+            vertical_boundary_xs,
+            horizontal_boundary_ys,
+            leaf_left: leaf_bounds.x,
+            leaf_bottom: leaf_bounds.y,
+            leaf_right: leaf_bounds.right(),
+            leaf_top: leaf_bounds.top(),
+            trim_allowance_pt,
+        }
     }
 
-    pub fn right(&self) -> f32 {
-        self.x + self.width
-    }
+    /// Build a simple marks config for the standalone render API (no spread data).
+    ///
+    /// Uses uniform grid geometry — only correct when trim_allowance is 0.
+    pub fn simple(
+        cols: usize,
+        rows: usize,
+        leaf_bounds: &Rect,
+    ) -> Self {
+        let cell_width = leaf_bounds.width / cols.max(1) as f32;
+        let cell_height = leaf_bounds.height / rows.max(1) as f32;
 
-    pub fn top(&self) -> f32 {
-        self.y + self.height
+        let mut spine_positions = Vec::with_capacity(cols);
+        for col in 0..cols {
+            let spine_x = leaf_bounds.x + (col as f32 + 0.5) * cell_width;
+            let mut row_spans = Vec::with_capacity(rows);
+            for row in 0..rows {
+                let bottom = leaf_bounds.y + row as f32 * cell_height;
+                row_spans.push((bottom, bottom + cell_height));
+            }
+            spine_positions.push(SpinePosition { x: spine_x, rows: row_spans });
+        }
+
+        let vertical_boundary_xs = (0..cols.saturating_sub(1))
+            .map(|col| leaf_bounds.x + (col + 1) as f32 * cell_width)
+            .collect();
+        let horizontal_boundary_ys = (0..rows.saturating_sub(1))
+            .map(|row| leaf_bounds.y + (row + 1) as f32 * cell_height)
+            .collect();
+
+        Self {
+            spine_positions,
+            vertical_boundary_xs,
+            horizontal_boundary_ys,
+            leaf_left: leaf_bounds.x,
+            leaf_bottom: leaf_bounds.y,
+            leaf_right: leaf_bounds.right(),
+            leaf_top: leaf_bounds.top(),
+            trim_allowance_pt: 0.0,
+        }
     }
 }
 
@@ -108,10 +204,6 @@ pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig, ctx: Option<&M
         ops.push_str(&generate_fold_lines(config));
     }
 
-    if marks.cut_lines {
-        ops.push_str(&generate_cut_lines(config));
-    }
-
     if marks.trim_marks {
         ops.push_str(&generate_trim_marks(config));
     }
@@ -146,26 +238,28 @@ pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig, ctx: Option<&M
 
 /// Generate fold lines (dashed lines at fold positions).
 ///
-/// Fold lines are drawn at all internal boundaries when `boundary_type == Fold`.
-/// When `boundary_type == Cut`, there are no folds to draw.
+/// Draws dashed lines at:
+/// - Inter-spread boundaries (horizontal and vertical)
+/// - Spine fold within each spread column (vertical, contained within each row)
 fn generate_fold_lines(config: &MarksConfig) -> String {
-    if config.boundary_type != BoundaryType::Fold {
-        return String::new();
-    }
-
     let mut ops = String::new();
     ops.push_str(&format!("{} w\n[6 3] 0 d\n", FOLD_LINE_WIDTH));
 
-    // Vertical fold lines
-    for &col in &config.vertical_boundaries {
-        let x = config.leaf_left + (col + 1) as f32 * config.cell_width;
+    // Vertical fold lines at inter-spread boundaries
+    for &x in &config.vertical_boundary_xs {
         ops.push_str(&draw_line(x, config.leaf_bottom, x, config.leaf_top));
     }
 
-    // Horizontal fold lines
-    for &row in &config.horizontal_boundaries {
-        let y = config.leaf_bottom + (row + 1) as f32 * config.cell_height;
+    // Horizontal fold lines at inter-spread boundaries
+    for &y in &config.horizontal_boundary_ys {
         ops.push_str(&draw_line(config.leaf_left, y, config.leaf_right, y));
+    }
+
+    // Spine fold line within each spread column, drawn per-row
+    for spine in &config.spine_positions {
+        for &(bottom, top) in &spine.rows {
+            ops.push_str(&draw_line(spine.x, bottom, spine.x, top));
+        }
     }
 
     // Reset to solid line
@@ -175,90 +269,48 @@ fn generate_fold_lines(config: &MarksConfig) -> String {
 }
 
 // =============================================================================
-// Cut Lines
+// Trim Marks (Guillotine Guides)
 // =============================================================================
 
-/// Generate cut lines (solid lines with scissors at cut positions).
+/// Generate trim marks at inter-spread boundaries.
 ///
-/// Cut lines are drawn at all internal boundaries when `boundary_type == Cut`.
-/// When `boundary_type == Fold`, there are no cuts to draw.
-fn generate_cut_lines(config: &MarksConfig) -> String {
-    if config.boundary_type != BoundaryType::Cut {
-        return String::new();
-    }
-
-    let mut ops = String::new();
-    ops.push_str(&format!("{} w\n[] 0 d\n", CUT_LINE_WIDTH));
-
-    // Horizontal cut lines
-    for &row in &config.horizontal_boundaries {
-        let y = config.leaf_bottom + (row + 1) as f32 * config.cell_height;
-        ops.push_str(&draw_line(config.leaf_left, y, config.leaf_right, y));
-        ops.push_str(&draw_scissors_horizontal(
-            config.leaf_left - SCISSORS_SIZE - 3.0,
-            y,
-        ));
-    }
-
-    // Vertical cut lines
-    for &col in &config.vertical_boundaries {
-        let x = config.leaf_left + (col + 1) as f32 * config.cell_width;
-        ops.push_str(&draw_line(x, config.leaf_bottom, x, config.leaf_top));
-        ops.push_str(&draw_scissors_vertical(
-            x,
-            config.leaf_bottom - SCISSORS_SIZE - 3.0,
-        ));
-    }
-
-    ops
-}
-
-// =============================================================================
-// Trim Marks
-// =============================================================================
-
-/// Generate trim marks at cut positions.
-///
-/// Trim marks appear at cell corners adjacent to cut lines, indicating where
-/// pages will be trimmed. Only drawn when `boundary_type == Cut` — fold
-/// boundaries don't need trim guidance.
+/// These L-shaped corner marks indicate where to guillotine-trim after folding.
+/// They appear at the edges of the trim allowance gap between spread rows/columns.
+/// Only drawn when there are inter-spread boundaries (quarto, octavo, etc.).
 fn generate_trim_marks(config: &MarksConfig) -> String {
-    if config.boundary_type != BoundaryType::Cut || config.content_bounds.is_empty() {
+    if config.horizontal_boundary_ys.is_empty() && config.vertical_boundary_xs.is_empty() {
         return String::new();
     }
 
     let mut ops = String::new();
     ops.push_str(&format!("{} w\n[] 0 d\n", CROP_MARK_WIDTH));
 
-    for row in 0..config.rows {
-        for col in 0..config.cols {
-            let idx = row * config.cols + col;
-            if idx >= config.content_bounds.len() {
-                continue;
-            }
-            let bounds = &config.content_bounds[idx];
-            if !bounds.is_valid() {
-                continue;
-            }
+    let half_gap = config.trim_allowance_pt / 2.0;
 
-            let cut_right = config.vertical_boundaries.contains(&col);
-            let cut_left = col > 0 && config.vertical_boundaries.contains(&(col - 1));
-            let cut_bottom = config.horizontal_boundaries.contains(&row);
-            let cut_top = row > 0 && config.horizontal_boundaries.contains(&(row - 1));
+    // Horizontal boundaries (between spread rows)
+    for &center_y in &config.horizontal_boundary_ys {
+        let top_edge = center_y + half_gap;
+        let bottom_edge = center_y - half_gap;
 
-            if cut_top || cut_left {
-                ops.push_str(&draw_corner_mark(bounds.x, bounds.top(), -1.0, 1.0));
-            }
-            if cut_top || cut_right {
-                ops.push_str(&draw_corner_mark(bounds.right(), bounds.top(), 1.0, 1.0));
-            }
-            if cut_bottom || cut_left {
-                ops.push_str(&draw_corner_mark(bounds.x, bounds.y, -1.0, -1.0));
-            }
-            if cut_bottom || cut_right {
-                ops.push_str(&draw_corner_mark(bounds.right(), bounds.y, 1.0, -1.0));
-            }
-        }
+        ops.push_str(&draw_corner_marks(
+            config.leaf_left, bottom_edge, config.leaf_right, bottom_edge,
+        ));
+        ops.push_str(&draw_corner_marks(
+            config.leaf_left, top_edge, config.leaf_right, top_edge,
+        ));
+    }
+
+    // Vertical boundaries (between spread columns)
+    for &center_x in &config.vertical_boundary_xs {
+        let right_edge = center_x + half_gap;
+        let left_edge = center_x - half_gap;
+
+        ops.push_str(&draw_corner_marks(
+            left_edge, config.leaf_bottom, left_edge, config.leaf_top,
+        ));
+        ops.push_str(&draw_corner_marks(
+            right_edge, config.leaf_bottom, right_edge, config.leaf_top,
+        ));
     }
 
     ops
@@ -379,31 +431,18 @@ fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
     let kettle_offset_pt = mm_to_pt(ctx.sewing_config.kettle_offset_mm);
     let half_mark = SEWING_MARK_LENGTH / 2.0;
 
-    // The spine fold is at the center of each spread column.
-    // Each spread column spans 2 cells (verso + recto), but in our grid model
-    // cols = number of spread columns. The spine of spread column i is at the
-    // center of that column's width in the leaf.
-    let spread_col_width = (config.leaf_right - config.leaf_left)
-        / config.cols.max(1) as f32;
-
-    for col in 0..config.cols {
-        let spine_x = config.leaf_left + (col as f32 + 0.5) * spread_col_width;
-
-        // For multi-row arrangements, draw sewing marks in each row
-        for row in 0..config.rows {
-            let cell_bottom = config.leaf_bottom + row as f32 * config.cell_height;
-            let cell_top = cell_bottom + config.cell_height;
-
+    for spine in &config.spine_positions {
+        for &(cell_bottom, cell_top) in &spine.rows {
             // Kettle stitch positions (near head and tail)
             let kettle_top = cell_top - kettle_offset_pt;
             let kettle_bottom = cell_bottom + kettle_offset_pt;
 
             // Draw kettle stitch marks
             ops.push_str(&draw_line(
-                spine_x - half_mark, kettle_top, spine_x + half_mark, kettle_top,
+                spine.x - half_mark, kettle_top, spine.x + half_mark, kettle_top,
             ));
             ops.push_str(&draw_line(
-                spine_x - half_mark, kettle_bottom, spine_x + half_mark, kettle_bottom,
+                spine.x - half_mark, kettle_bottom, spine.x + half_mark, kettle_bottom,
             ));
 
             // Evenly spaced sewing stations between kettle positions
@@ -415,7 +454,7 @@ fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
                 for i in 1..=station_count {
                     let y = kettle_bottom + i as f32 * step;
                     ops.push_str(&draw_line(
-                        spine_x - half_mark, y, spine_x + half_mark, y,
+                        spine.x - half_mark, y, spine.x + half_mark, y,
                     ));
                 }
             }
@@ -440,7 +479,6 @@ fn generate_collation_marks(config: &MarksConfig, ctx: &MarksContext) -> String 
     }
 
     let mut ops = String::new();
-    // Set fill color to black
     ops.push_str("0 0 0 rg\n");
 
     let leaf_height = config.leaf_top - config.leaf_bottom;
@@ -457,96 +495,14 @@ fn generate_collation_marks(config: &MarksConfig, ctx: &MarksContext) -> String 
     let mark_y = config.leaf_top - COLLATION_MARK_HEIGHT
         - ctx.signature_index as f32 * step;
 
-    // Draw on the spine fold (center of each spread column)
-    let spread_col_width = (config.leaf_right - config.leaf_left)
-        / config.cols.max(1) as f32;
-
-    for col in 0..config.cols {
-        let spine_x = config.leaf_left + (col as f32 + 0.5) * spread_col_width;
-        // Rectangle centered on the spine
-        let rect_x = spine_x - COLLATION_MARK_WIDTH / 2.0;
+    for spine in &config.spine_positions {
+        let rect_x = spine.x - COLLATION_MARK_WIDTH / 2.0;
         ops.push_str(&format!(
             "{} {} {} {} re f\n",
             rect_x, mark_y, COLLATION_MARK_WIDTH, COLLATION_MARK_HEIGHT
         ));
     }
 
-    ops
-}
-
-// =============================================================================
-// Scissors Symbol
-// =============================================================================
-
-/// Draw scissors symbol pointing right (for horizontal cut lines)
-fn draw_scissors_horizontal(x: f32, y: f32) -> String {
-    let half = SCISSORS_SIZE / 2.0;
-    let r = half * 0.4; // finger hole radius
-
-    let mut ops = String::new();
-    ops.push_str("q\n0.3 w\n");
-
-    // Upper finger hole
-    let cx1 = x + half * 0.3;
-    let cy1 = y + half * 0.5;
-    ops.push_str(&draw_circle(cx1, cy1, r));
-
-    // Lower finger hole
-    let cx2 = x + half * 0.3;
-    let cy2 = y - half * 0.5;
-    ops.push_str(&draw_circle(cx2, cy2, r));
-
-    // Blades extending to the right
-    ops.push_str(&draw_line(
-        cx1 + r,
-        cy1 - r * 0.5,
-        x + SCISSORS_SIZE,
-        y + 1.0,
-    ));
-    ops.push_str(&draw_line(
-        cx2 + r,
-        cy2 + r * 0.5,
-        x + SCISSORS_SIZE,
-        y - 1.0,
-    ));
-
-    ops.push_str("Q\n");
-    ops
-}
-
-/// Draw scissors symbol pointing up (for vertical cut lines)
-fn draw_scissors_vertical(x: f32, y: f32) -> String {
-    let half = SCISSORS_SIZE / 2.0;
-    let r = half * 0.4;
-
-    let mut ops = String::new();
-    ops.push_str("q\n0.3 w\n");
-
-    // Left finger hole
-    let cx1 = x - half * 0.5;
-    let cy1 = y + half * 0.3;
-    ops.push_str(&draw_circle(cx1, cy1, r));
-
-    // Right finger hole
-    let cx2 = x + half * 0.5;
-    let cy2 = y + half * 0.3;
-    ops.push_str(&draw_circle(cx2, cy2, r));
-
-    // Blades extending upward
-    ops.push_str(&draw_line(
-        cx1 + r * 0.5,
-        cy1 + r,
-        x - 1.0,
-        y + SCISSORS_SIZE,
-    ));
-    ops.push_str(&draw_line(
-        cx2 - r * 0.5,
-        cy2 + r,
-        x + 1.0,
-        y + SCISSORS_SIZE,
-    ));
-
-    ops.push_str("Q\n");
     ops
 }
 
