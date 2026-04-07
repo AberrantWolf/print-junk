@@ -94,14 +94,21 @@ pub async fn handle_generate_preview(
         }
     };
 
-    // Calculate and send statistics
-    if let Ok(stats) = calculate_statistics(documents, &options) {
-        let _ = update_tx.send(PdfUpdate::ImposeStatsCalculated { stats });
-    }
+    // Calculate and send statistics (also used for total_signatures below)
+    let stats = match calculate_statistics(documents, &options) {
+        Ok(stats) => {
+            let _ = update_tx.send(PdfUpdate::ImposeStatsCalculated {
+                stats: stats.clone(),
+            });
+            Some(stats)
+        }
+        Err(_) => None,
+    };
+    let total_signatures = stats.and_then(|s| s.signatures).unwrap_or(0);
 
-    // Generate preview (first signature or reasonable sample)
-    let mut preview = match generate_preview(documents, &options, 4).await {
-        Ok(doc) => doc,
+    // Generate preview (smart default limits output to ~16 sheets)
+    let mut preview_result = match generate_preview(documents, &options, None).await {
+        Ok(r) => r,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
                 message: format!("Failed to generate preview: {}", e),
@@ -110,11 +117,12 @@ pub async fn handle_generate_preview(
         }
     };
 
-    let page_count = preview.get_pages().len();
+    let page_count = preview_result.document.get_pages().len();
+    let signatures_shown = preview_result.signatures_shown;
 
     // Serialize to bytes for in-memory viewer loading (no disk round-trip)
     let mut pdf_bytes = Vec::new();
-    if let Err(e) = preview.save_to(&mut pdf_bytes) {
+    if let Err(e) = preview_result.document.save_to(&mut pdf_bytes) {
         let _ = update_tx.send(PdfUpdate::Error {
             message: format!("Failed to serialize preview: {}", e),
         });
@@ -124,6 +132,8 @@ pub async fn handle_generate_preview(
     let _ = update_tx.send(PdfUpdate::ImposePreviewGenerated {
         pdf_bytes,
         page_count,
+        signatures_shown,
+        total_signatures,
     });
 }
 

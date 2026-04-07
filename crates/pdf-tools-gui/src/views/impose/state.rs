@@ -11,6 +11,10 @@ pub struct ImposeState {
     pub loaded_docs: Vec<(PathBuf, usize)>,
     pub preview_viewer: Option<ViewerState>,
     pub needs_regeneration: bool,
+    /// Number of signatures shown in the current preview (None if no preview)
+    pub preview_signatures_shown: Option<usize>,
+    /// Total signatures in the full imposition (None if no preview)
+    pub preview_total_signatures: Option<usize>,
 }
 
 impl Default for ImposeState {
@@ -22,6 +26,8 @@ impl Default for ImposeState {
             loaded_docs: Vec::new(),
             preview_viewer: None,
             needs_regeneration: false,
+            preview_signatures_shown: None,
+            preview_total_signatures: None,
         }
     }
 }
