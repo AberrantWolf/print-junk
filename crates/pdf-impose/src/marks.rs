@@ -12,7 +12,7 @@ use crate::constants::{
     REGISTRATION_MARK_WIDTH, SEWING_MARK_LENGTH, SEWING_MARK_WIDTH,
 };
 use crate::constants::mm_to_pt;
-use crate::layout::{ArrangementConfig, Rect, SpreadPosition};
+use crate::layout::{ArrangementConfig, Rect, SheetSide, SpreadPosition};
 use crate::types::{BindingType, PrinterMarks, SewingConfig};
 
 // =============================================================================
@@ -184,6 +184,33 @@ pub struct MarksContext {
     pub total_signatures: usize,
     /// Sewing station configuration
     pub sewing_config: SewingConfig,
+    /// Which side of the physical sheet (front = outside when folded, back = inside)
+    pub sheet_side: SheetSide,
+    /// Sheet position within signature (0 = outermost sheet)
+    pub sheet_in_signature: usize,
+}
+
+// =============================================================================
+// Side-Aware Filtering
+// =============================================================================
+
+/// Filter marks to those appropriate for a given sheet side and position.
+///
+/// Physical rules for signature binding:
+/// - Fold lines: front (outside) only — folding guides
+/// - Collation marks: front of outermost sheet only — spine stacking verification
+/// - Sewing marks: back (inside) only — sew from inside opened signature
+/// - Crop/trim/registration: both sides — printer/cutter alignment
+fn filter_marks_for_context(marks: &PrinterMarks, ctx: &MarksContext) -> PrinterMarks {
+    let is_front = ctx.sheet_side == SheetSide::Front;
+    let is_outermost = ctx.sheet_in_signature == 0;
+
+    PrinterMarks {
+        fold_lines: marks.fold_lines && is_front,
+        collation_marks: marks.collation_marks && is_front && is_outermost,
+        sewing_marks: marks.sewing_marks && !is_front,
+        ..*marks
+    }
 }
 
 // =============================================================================
@@ -195,6 +222,12 @@ pub struct MarksContext {
 /// Pass `ctx` as `None` when calling from the standalone render API (no binding context).
 /// Sewing and collation marks require a context and are silently skipped without one.
 pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig, ctx: Option<&MarksContext>) -> String {
+    // Filter marks based on physical sheet side and position
+    let marks = match ctx {
+        Some(c) => filter_marks_for_context(marks, c),
+        None => *marks,
+    };
+
     let mut ops = String::new();
 
     // Save graphics state and set default stroke color
@@ -274,8 +307,11 @@ fn generate_fold_lines(config: &MarksConfig) -> String {
 
 /// Generate trim marks at inter-spread boundaries.
 ///
-/// These L-shaped corner marks indicate where to guillotine-trim after folding.
-/// They appear at the edges of the trim allowance gap between spread rows/columns.
+/// These are extension lines at the leaf edges showing where internal guillotine
+/// cuts should be made. Each boundary produces a pair of parallel lines (one per
+/// edge of the trim allowance gap) extending outward from the leaf into the
+/// sheet margin area.
+///
 /// Only drawn when there are inter-spread boundaries (quarto, octavo, etc.).
 fn generate_trim_marks(config: &MarksConfig) -> String {
     if config.horizontal_boundary_ys.is_empty() && config.vertical_boundary_xs.is_empty() {
@@ -288,32 +324,49 @@ fn generate_trim_marks(config: &MarksConfig) -> String {
     let half_gap = config.trim_allowance_pt / 2.0;
 
     // Horizontal boundaries (between spread rows)
+    // Draw horizontal extension lines at left and right leaf edges
     for &center_y in &config.horizontal_boundary_ys {
         let top_edge = center_y + half_gap;
         let bottom_edge = center_y - half_gap;
 
-        ops.push_str(&draw_corner_marks(
-            config.leaf_left, bottom_edge, config.leaf_right, bottom_edge,
-        ));
-        ops.push_str(&draw_corner_marks(
-            config.leaf_left, top_edge, config.leaf_right, top_edge,
-        ));
+        // Left side: lines extending left from the leaf edge
+        ops.push_str(&draw_trim_extension(config.leaf_left, top_edge, -1.0, 0.0));
+        ops.push_str(&draw_trim_extension(config.leaf_left, bottom_edge, -1.0, 0.0));
+
+        // Right side: lines extending right from the leaf edge
+        ops.push_str(&draw_trim_extension(config.leaf_right, top_edge, 1.0, 0.0));
+        ops.push_str(&draw_trim_extension(config.leaf_right, bottom_edge, 1.0, 0.0));
     }
 
     // Vertical boundaries (between spread columns)
+    // Draw vertical extension lines at top and bottom leaf edges
     for &center_x in &config.vertical_boundary_xs {
         let right_edge = center_x + half_gap;
         let left_edge = center_x - half_gap;
 
-        ops.push_str(&draw_corner_marks(
-            left_edge, config.leaf_bottom, left_edge, config.leaf_top,
-        ));
-        ops.push_str(&draw_corner_marks(
-            right_edge, config.leaf_bottom, right_edge, config.leaf_top,
-        ));
+        // Top: lines extending up from the leaf edge
+        ops.push_str(&draw_trim_extension(left_edge, config.leaf_top, 0.0, 1.0));
+        ops.push_str(&draw_trim_extension(right_edge, config.leaf_top, 0.0, 1.0));
+
+        // Bottom: lines extending down from the leaf edge
+        ops.push_str(&draw_trim_extension(left_edge, config.leaf_bottom, 0.0, -1.0));
+        ops.push_str(&draw_trim_extension(right_edge, config.leaf_bottom, 0.0, -1.0));
     }
 
     ops
+}
+
+/// Draw a single trim extension line from a point on the leaf edge outward.
+///
+/// `dx` and `dy` indicate direction: e.g. (-1, 0) = leftward, (0, 1) = upward.
+/// The line starts at GAP offset from the origin and extends for CROP_MARK_LENGTH.
+fn draw_trim_extension(x: f32, y: f32, dx: f32, dy: f32) -> String {
+    draw_line(
+        x + dx * CROP_MARK_GAP,
+        y + dy * CROP_MARK_GAP,
+        x + dx * (CROP_MARK_GAP + CROP_MARK_LENGTH),
+        y + dy * (CROP_MARK_GAP + CROP_MARK_LENGTH),
+    )
 }
 
 // =============================================================================

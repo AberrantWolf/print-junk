@@ -65,7 +65,7 @@ pub(crate) fn impose_signature_binding(
         );
 
         // Render each sheet (front + back)
-        for sheet_assignment in &sheet_assignments {
+        for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
             // Front side
             let front_spreads = apply_page_assignments(
                 &spread_positions,
@@ -87,6 +87,7 @@ pub(crate) fn impose_signature_binding(
                 options,
                 sig_num,
                 num_signatures,
+                sheet_idx,
             )?;
             page_refs.push(Object::Reference(front_page_id));
 
@@ -111,6 +112,7 @@ pub(crate) fn impose_signature_binding(
                 options,
                 sig_num,
                 num_signatures,
+                sheet_idx,
             )?;
             page_refs.push(Object::Reference(back_page_id));
         }
