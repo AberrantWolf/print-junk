@@ -16,9 +16,7 @@ struct SourceDocCache {
 
 impl ImposeDocStore {
     pub fn new() -> Self {
-        Self {
-            source_cache: None,
-        }
+        Self { source_cache: None }
     }
 
     /// Get cached source documents if the paths match, otherwise load and cache

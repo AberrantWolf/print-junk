@@ -75,9 +75,10 @@ fn show_preview_area(
 ) {
     egui::CentralPanel::default().show_inside(ui, |ui| {
         if state.preview_viewer.is_some() {
-            if let (Some(shown), Some(total)) =
-                (state.preview_signatures_shown, state.preview_total_signatures)
-            {
+            if let (Some(shown), Some(total)) = (
+                state.preview_signatures_shown,
+                state.preview_total_signatures,
+            ) {
                 if shown < total {
                     ui.horizontal(|ui| {
                         ui.colored_label(

@@ -69,10 +69,7 @@ pub async fn handle_load_bytes(
 ) {
     let doc_id = state.next_id();
     state.add_document_bytes(doc_id, pdf_bytes);
-    let _ = update_tx.send(PdfUpdate::ViewerLoaded {
-        doc_id,
-        page_count,
-    });
+    let _ = update_tx.send(PdfUpdate::ViewerLoaded { doc_id, page_count });
 }
 
 #[cfg(feature = "pdf-viewer")]

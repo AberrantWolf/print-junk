@@ -6,12 +6,12 @@
 //! All mark positions are derived from actual spread layout data via
 //! `MarksConfig::from_layout()`, ensuring marks always align with page content.
 
+use crate::constants::mm_to_pt;
 use crate::constants::{
     BEZIER_CIRCLE_FACTOR, COLLATION_MARK_HEIGHT, COLLATION_MARK_WIDTH, CROP_MARK_GAP,
     CROP_MARK_LENGTH, CROP_MARK_WIDTH, FOLD_LINE_WIDTH, REGISTRATION_MARK_SIZE,
     REGISTRATION_MARK_WIDTH, SEWING_MARK_LENGTH, SEWING_MARK_WIDTH,
 };
-use crate::constants::mm_to_pt;
 use crate::layout::{ArrangementConfig, Rect, SheetSide, SpreadPosition};
 use crate::types::{BindingType, PrinterMarks, SewingConfig};
 
@@ -132,11 +132,7 @@ impl MarksConfig {
     /// Build a simple marks config for the standalone render API (no spread data).
     ///
     /// Uses uniform grid geometry — only correct when trim_allowance is 0.
-    pub fn simple(
-        cols: usize,
-        rows: usize,
-        leaf_bounds: &Rect,
-    ) -> Self {
+    pub fn simple(cols: usize, rows: usize, leaf_bounds: &Rect) -> Self {
         let cell_width = leaf_bounds.width / cols.max(1) as f32;
         let cell_height = leaf_bounds.height / rows.max(1) as f32;
 
@@ -148,7 +144,10 @@ impl MarksConfig {
                 let bottom = leaf_bounds.y + row as f32 * cell_height;
                 row_spans.push((bottom, bottom + cell_height));
             }
-            spine_positions.push(SpinePosition { x: spine_x, rows: row_spans });
+            spine_positions.push(SpinePosition {
+                x: spine_x,
+                rows: row_spans,
+            });
         }
 
         let vertical_boundary_xs = (0..cols.saturating_sub(1))
@@ -221,7 +220,11 @@ fn filter_marks_for_context(marks: &PrinterMarks, ctx: &MarksContext) -> Printer
 ///
 /// Pass `ctx` as `None` when calling from the standalone render API (no binding context).
 /// Sewing and collation marks require a context and are silently skipped without one.
-pub fn generate_marks(marks: &PrinterMarks, config: &MarksConfig, ctx: Option<&MarksContext>) -> String {
+pub fn generate_marks(
+    marks: &PrinterMarks,
+    config: &MarksConfig,
+    ctx: Option<&MarksContext>,
+) -> String {
     // Filter marks based on physical sheet side and position
     let marks = match ctx {
         Some(c) => filter_marks_for_context(marks, c),
@@ -331,11 +334,21 @@ fn generate_trim_marks(config: &MarksConfig) -> String {
 
         // Left side: lines extending left from the leaf edge
         ops.push_str(&draw_trim_extension(config.leaf_left, top_edge, -1.0, 0.0));
-        ops.push_str(&draw_trim_extension(config.leaf_left, bottom_edge, -1.0, 0.0));
+        ops.push_str(&draw_trim_extension(
+            config.leaf_left,
+            bottom_edge,
+            -1.0,
+            0.0,
+        ));
 
         // Right side: lines extending right from the leaf edge
         ops.push_str(&draw_trim_extension(config.leaf_right, top_edge, 1.0, 0.0));
-        ops.push_str(&draw_trim_extension(config.leaf_right, bottom_edge, 1.0, 0.0));
+        ops.push_str(&draw_trim_extension(
+            config.leaf_right,
+            bottom_edge,
+            1.0,
+            0.0,
+        ));
     }
 
     // Vertical boundaries (between spread columns)
@@ -349,8 +362,18 @@ fn generate_trim_marks(config: &MarksConfig) -> String {
         ops.push_str(&draw_trim_extension(right_edge, config.leaf_top, 0.0, 1.0));
 
         // Bottom: lines extending down from the leaf edge
-        ops.push_str(&draw_trim_extension(left_edge, config.leaf_bottom, 0.0, -1.0));
-        ops.push_str(&draw_trim_extension(right_edge, config.leaf_bottom, 0.0, -1.0));
+        ops.push_str(&draw_trim_extension(
+            left_edge,
+            config.leaf_bottom,
+            0.0,
+            -1.0,
+        ));
+        ops.push_str(&draw_trim_extension(
+            right_edge,
+            config.leaf_bottom,
+            0.0,
+            -1.0,
+        ));
     }
 
     ops
@@ -492,10 +515,16 @@ fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
 
             // Draw kettle stitch marks
             ops.push_str(&draw_line(
-                spine.x - half_mark, kettle_top, spine.x + half_mark, kettle_top,
+                spine.x - half_mark,
+                kettle_top,
+                spine.x + half_mark,
+                kettle_top,
             ));
             ops.push_str(&draw_line(
-                spine.x - half_mark, kettle_bottom, spine.x + half_mark, kettle_bottom,
+                spine.x - half_mark,
+                kettle_bottom,
+                spine.x + half_mark,
+                kettle_bottom,
             ));
 
             // Evenly spaced sewing stations between kettle positions
@@ -506,9 +535,7 @@ fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
 
                 for i in 1..=station_count {
                     let y = kettle_bottom + i as f32 * step;
-                    ops.push_str(&draw_line(
-                        spine.x - half_mark, y, spine.x + half_mark, y,
-                    ));
+                    ops.push_str(&draw_line(spine.x - half_mark, y, spine.x + half_mark, y));
                 }
             }
         }
@@ -545,8 +572,7 @@ fn generate_collation_marks(config: &MarksConfig, ctx: &MarksContext) -> String 
     };
 
     // Y position steps down from head (top) toward tail (bottom)
-    let mark_y = config.leaf_top - COLLATION_MARK_HEIGHT
-        - ctx.signature_index as f32 * step;
+    let mark_y = config.leaf_top - COLLATION_MARK_HEIGHT - ctx.signature_index as f32 * step;
 
     for spine in &config.spine_positions {
         let rect_x = spine.x - COLLATION_MARK_WIDTH / 2.0;

@@ -83,16 +83,17 @@ pub(crate) fn render_sheet_spreads(
             sheet_side: layout.side,
             sheet_in_signature,
         };
-        content_ops.push(generate_marks(&options.marks, &marks_config, Some(&marks_ctx)));
+        content_ops.push(generate_marks(
+            &options.marks,
+            &marks_config,
+            Some(&marks_ctx),
+        ));
     }
 
     // Add page numbers
     if options.add_page_numbers {
-        let (font_ops, font_id) = render_page_numbers(
-            output,
-            &placements,
-            options.page_number_start,
-        );
+        let (font_ops, font_id) =
+            render_page_numbers(output, &placements, options.page_number_start);
         content_ops.push(font_ops);
         fonts.set("F1", Object::Reference(font_id));
     }
@@ -154,4 +155,3 @@ fn generate_placement_cmd(xobject_name: &str, placement: &PagePlacement) -> Stri
         )
     }
 }
-

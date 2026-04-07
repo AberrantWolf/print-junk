@@ -39,28 +39,46 @@ fn test_scaling_modes() {
 #[test]
 fn test_scale_zero_source_dimensions() {
     let scale = calculate_scale(0.0, 600.0, 400.0, 400.0, ScalingMode::Fit);
-    assert!((scale - 1.0).abs() < 0.001, "Zero source width should return 1.0");
+    assert!(
+        (scale - 1.0).abs() < 0.001,
+        "Zero source width should return 1.0"
+    );
 
     let scale = calculate_scale(800.0, 0.0, 400.0, 400.0, ScalingMode::Fit);
-    assert!((scale - 1.0).abs() < 0.001, "Zero source height should return 1.0");
+    assert!(
+        (scale - 1.0).abs() < 0.001,
+        "Zero source height should return 1.0"
+    );
 
     let scale = calculate_scale(0.0, 0.0, 400.0, 400.0, ScalingMode::Fill);
-    assert!((scale - 1.0).abs() < 0.001, "Zero source both should return 1.0");
+    assert!(
+        (scale - 1.0).abs() < 0.001,
+        "Zero source both should return 1.0"
+    );
 }
 
 #[test]
 fn test_scale_negative_source_dimensions() {
     let scale = calculate_scale(-100.0, 600.0, 400.0, 400.0, ScalingMode::Fit);
-    assert!((scale - 1.0).abs() < 0.001, "Negative source width should return 1.0");
+    assert!(
+        (scale - 1.0).abs() < 0.001,
+        "Negative source width should return 1.0"
+    );
 }
 
 #[test]
 fn test_scale_zero_target_dimensions() {
     let scale = calculate_scale(800.0, 600.0, 0.0, 400.0, ScalingMode::Fit);
-    assert!((scale - 1.0).abs() < 0.001, "Zero target width should return 1.0");
+    assert!(
+        (scale - 1.0).abs() < 0.001,
+        "Zero target width should return 1.0"
+    );
 
     let scale = calculate_scale(800.0, 600.0, 400.0, 0.0, ScalingMode::Fit);
-    assert!((scale - 1.0).abs() < 0.001, "Zero target height should return 1.0");
+    assert!(
+        (scale - 1.0).abs() < 0.001,
+        "Zero target height should return 1.0"
+    );
 }
 
 // =============================================================================
@@ -71,13 +89,7 @@ fn test_scale_zero_target_dimensions() {
 /// even when spine != fore_edge and top != bottom.
 #[test]
 fn test_nonuniform_margins_verso_recto_same_size() {
-    let spread_pos = SpreadPosition::empty(
-        Point::new(0.0, 0.0),
-        600.0,
-        400.0,
-        false,
-        0,
-    );
+    let spread_pos = SpreadPosition::empty(Point::new(0.0, 0.0), 600.0, 400.0, false, 0);
     let margins = nonuniform_margins();
 
     // Test with no cut edges
@@ -142,7 +154,9 @@ fn test_nonuniform_margins_quarto_spreads_same_page_size() {
         assert!(
             (w - first_width).abs() < 0.01,
             "Quarto page {} width {} differs from first {}",
-            i, w, first_width
+            i,
+            w,
+            first_width
         );
     }
 
@@ -152,7 +166,9 @@ fn test_nonuniform_margins_quarto_spreads_same_page_size() {
         assert!(
             (h - first_height).abs() < 0.01,
             "Quarto page {} height {} differs from first {}",
-            i, h, first_height
+            i,
+            h,
+            first_height
         );
     }
 }
@@ -185,7 +201,9 @@ fn test_nonuniform_margins_octavo_spreads_same_page_size() {
         assert!(
             (w - first_width).abs() < 0.01,
             "Octavo page {} width {} differs from first {}",
-            i, w, first_width
+            i,
+            w,
+            first_width
         );
     }
 
@@ -194,7 +212,9 @@ fn test_nonuniform_margins_octavo_spreads_same_page_size() {
         assert!(
             (h - first_height).abs() < 0.01,
             "Octavo page {} height {} differs from first {}",
-            i, h, first_height
+            i,
+            h,
+            first_height
         );
     }
 }
@@ -230,7 +250,11 @@ fn test_nonuniform_margins_placements_uniform_scale() {
         SheetSide::Front,
     );
 
-    assert_eq!(placements.len(), 4, "Should have 4 placements for quarto front");
+    assert_eq!(
+        placements.len(),
+        4,
+        "Should have 4 placements for quarto front"
+    );
 
     let first_scale = placements[0].scale;
     let first_width = placements[0].content_rect.width;
@@ -240,17 +264,23 @@ fn test_nonuniform_margins_placements_uniform_scale() {
         assert!(
             (p.scale - first_scale).abs() < 0.001,
             "Placement {} scale {} differs from first {}",
-            i, p.scale, first_scale
+            i,
+            p.scale,
+            first_scale
         );
         assert!(
             (p.content_rect.width - first_width).abs() < 0.1,
             "Placement {} width {} differs from first {}",
-            i, p.content_rect.width, first_width
+            i,
+            p.content_rect.width,
+            first_width
         );
         assert!(
             (p.content_rect.height - first_height).abs() < 0.1,
             "Placement {} height {} differs from first {}",
-            i, p.content_rect.height, first_height
+            i,
+            p.content_rect.height,
+            first_height
         );
     }
 }

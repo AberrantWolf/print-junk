@@ -159,7 +159,6 @@ impl BindingType {
     pub fn uses_signatures(self) -> bool {
         matches!(self, BindingType::Signature | BindingType::CaseBinding)
     }
-
 }
 
 /// Page arrangement within a signature
