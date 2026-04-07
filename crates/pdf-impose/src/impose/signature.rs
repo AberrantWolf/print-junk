@@ -12,7 +12,7 @@ use crate::layout::{
 };
 use crate::options::ImpositionOptions;
 use crate::render::get_page_dimensions;
-use crate::types::*;
+use crate::types::Result;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 
 /// Impose using signature binding (folded sheets)

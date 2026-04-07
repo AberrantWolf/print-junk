@@ -4,7 +4,7 @@
 //! Each flyleaf consists of 2 pages (front and back of one leaf).
 
 use crate::constants::PAGES_PER_LEAF;
-use crate::types::*;
+use crate::types::{ImposeError, Result};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 
 /// Add flyleaves (blank pages) to front and back of document
@@ -49,7 +49,7 @@ pub(crate) fn add_flyleaves(mut doc: Document, front: usize, back: usize) -> Res
     Ok(doc)
 }
 
-/// Get the MediaBox from a page
+/// Get the `MediaBox` from a page
 fn get_media_box(doc: &Document, page_id: ObjectId) -> Result<Vec<Object>> {
     let page_dict = doc.get_dictionary(page_id)?;
 
@@ -69,7 +69,7 @@ fn get_pages_tree(doc: &Document) -> Result<(ObjectId, Vec<Object>)> {
     let kids = pages_dict
         .get(b"Kids")
         .and_then(|obj| obj.as_array())
-        .map(|arr| arr.clone())
+        .cloned()
         .ok()
         .ok_or_else(|| ImposeError::Config("Pages Kids array not found".to_string()))?;
 
@@ -85,18 +85,14 @@ fn create_blank_pages(
 ) -> Result<Vec<Object>> {
     (0..count)
         .map(|_| {
-            let page_id = create_blank_page(doc, media_box, parent_id)?;
+            let page_id = create_blank_page(doc, media_box, parent_id);
             Ok(Object::Reference(page_id))
         })
         .collect()
 }
 
 /// Create a single blank page with the given media box
-fn create_blank_page(
-    doc: &mut Document,
-    media_box: &[Object],
-    parent_id: ObjectId,
-) -> Result<ObjectId> {
+fn create_blank_page(doc: &mut Document, media_box: &[Object], parent_id: ObjectId) -> ObjectId {
     let content_id = doc.add_object(Stream::new(Dictionary::new(), Vec::new()));
 
     let mut page_dict = Dictionary::new();
@@ -106,7 +102,7 @@ fn create_blank_page(
     page_dict.set("Contents", Object::Reference(content_id));
     page_dict.set("Resources", Object::Dictionary(Dictionary::new()));
 
-    Ok(doc.add_object(page_dict))
+    doc.add_object(page_dict)
 }
 
 /// Update the pages tree with new kids

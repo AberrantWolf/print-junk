@@ -6,7 +6,7 @@ pub async fn load_from_csv(
 ) -> Result<(Vec<Flashcard>, Vec<FlashcardWarning>)> {
     let path = path.as_ref().to_owned();
 
-    log::info!("Loading flashcards from {:?}", path);
+    log::info!("Loading flashcards from {}", path.display());
     let contents = tokio::fs::read_to_string(&path).await?;
 
     let (cards, warnings) = tokio::task::spawn_blocking(move || {

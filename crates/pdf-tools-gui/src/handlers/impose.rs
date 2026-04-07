@@ -24,21 +24,17 @@ impl ImposeDocStore {
         &mut self,
         paths: &[PathBuf],
     ) -> Result<&[Document], pdf_impose::ImposeError> {
-        let cache_valid = self
-            .source_cache
-            .as_ref()
-            .map(|c| c.paths == paths)
-            .unwrap_or(false);
+        let cache_valid = self.source_cache.as_ref().is_some_and(|c| c.paths == paths);
 
-        if !cache_valid {
+        if cache_valid {
+            log::debug!("Using cached source documents");
+        } else {
             log::debug!("Loading source documents (cache miss or paths changed)");
             let documents = load_multiple_pdfs(paths).await?;
             self.source_cache = Some(SourceDocCache {
                 paths: paths.to_vec(),
                 documents,
             });
-        } else {
-            log::debug!("Using cached source documents");
         }
 
         Ok(&self.source_cache.as_ref().unwrap().documents)
@@ -62,7 +58,7 @@ pub async fn handle_load(input_path: PathBuf, update_tx: &mpsc::UnboundedSender<
     }
 }
 
-pub async fn handle_process(update_tx: &mpsc::UnboundedSender<PdfUpdate>) {
+pub fn handle_process(update_tx: &mpsc::UnboundedSender<PdfUpdate>) {
     let _ = update_tx.send(PdfUpdate::Error {
         message: "Imposition not yet fully implemented".to_string(),
     });
@@ -81,12 +77,12 @@ pub async fn handle_generate_preview(
     }
 
     // Get cached documents or load them (avoids reloading on every preview)
-    let paths: Vec<PathBuf> = options.input_files.iter().cloned().collect();
+    let paths: Vec<PathBuf> = options.input_files.clone();
     let documents = match doc_store.get_or_load_sources(&paths).await {
         Ok(docs) => docs,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to load PDFs: {}", e),
+                message: format!("Failed to load PDFs: {e}"),
             });
             return;
         }
@@ -109,7 +105,7 @@ pub async fn handle_generate_preview(
         Ok(r) => r,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to generate preview: {}", e),
+                message: format!("Failed to generate preview: {e}"),
             });
             return;
         }
@@ -122,7 +118,7 @@ pub async fn handle_generate_preview(
     let mut pdf_bytes = Vec::new();
     if let Err(e) = preview_result.document.save_to(&mut pdf_bytes) {
         let _ = update_tx.send(PdfUpdate::Error {
-            message: format!("Failed to serialize preview: {}", e),
+            message: format!("Failed to serialize preview: {e}"),
         });
         return;
     }
@@ -154,12 +150,12 @@ pub async fn handle_generate(
     });
 
     // Load documents
-    let paths: Vec<PathBuf> = options.input_files.iter().cloned().collect();
+    let paths: Vec<PathBuf> = options.input_files.clone();
     let documents = match load_multiple_pdfs(&paths).await {
         Ok(docs) => docs,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to load PDFs: {}", e),
+                message: format!("Failed to load PDFs: {e}"),
             });
             return;
         }
@@ -176,7 +172,7 @@ pub async fn handle_generate(
         Ok(doc) => doc,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to impose PDF: {}", e),
+                message: format!("Failed to impose PDF: {e}"),
             });
             return;
         }
@@ -191,7 +187,7 @@ pub async fn handle_generate(
     // Save
     if let Err(e) = save_pdf(imposed, &output_path).await {
         let _ = update_tx.send(PdfUpdate::Error {
-            message: format!("Failed to save PDF: {}", e),
+            message: format!("Failed to save PDF: {e}"),
         });
         return;
     }
@@ -206,7 +202,7 @@ pub async fn handle_load_config(path: PathBuf, update_tx: &mpsc::UnboundedSender
         }
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to load configuration: {}", e),
+                message: format!("Failed to load configuration: {e}"),
             });
         }
     }
@@ -221,12 +217,12 @@ pub async fn handle_calculate_stats(
     }
 
     // Load documents
-    let paths: Vec<PathBuf> = options.input_files.iter().cloned().collect();
+    let paths: Vec<PathBuf> = options.input_files.clone();
     let documents = match load_multiple_pdfs(&paths).await {
         Ok(docs) => docs,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to load PDFs for stats: {}", e),
+                message: format!("Failed to load PDFs for stats: {e}"),
             });
             return;
         }
@@ -239,7 +235,7 @@ pub async fn handle_calculate_stats(
         }
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to calculate statistics: {}", e),
+                message: format!("Failed to calculate statistics: {e}"),
             });
         }
     }

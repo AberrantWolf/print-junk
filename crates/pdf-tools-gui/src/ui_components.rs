@@ -178,7 +178,7 @@ where
     .inner
 }
 
-/// Enum selector using ComboBox
+/// Enum selector using `ComboBox`
 pub fn enum_selector<T>(
     ui: &mut egui::Ui,
     id: &str,
@@ -196,8 +196,7 @@ where
         let current_text = options
             .iter()
             .find(|(v, _)| v == value)
-            .map(|(_, text)| *text)
-            .unwrap_or("Unknown");
+            .map_or("Unknown", |(_, text)| *text);
 
         egui::ComboBox::from_id_salt(id)
             .selected_text(current_text)
@@ -268,10 +267,10 @@ impl<'a> FileListEditor<'a> {
                     to_move_down = Some(idx);
                 }
 
-                let file_name = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.display().to_string());
+                let file_name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |n| n.to_string_lossy().to_string(),
+                );
                 ui.label(format!("{}. {}", idx + 1, file_name))
                     .on_hover_text(path.display().to_string());
 

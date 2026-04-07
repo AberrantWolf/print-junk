@@ -93,7 +93,7 @@ pub const HELVETICA_CHAR_WIDTH_RATIO: f32 = 0.5;
 /// Control point factor for approximating circles with Bezier curves.
 /// This magic number comes from: 4 * (sqrt(2) - 1) / 3 ≈ 0.552284749831
 /// Using 4 cubic Bezier curves with this factor gives a very close circle approximation.
-pub const BEZIER_CIRCLE_FACTOR: f32 = 0.552284749831;
+pub const BEZIER_CIRCLE_FACTOR: f32 = 0.552_284_8;
 
 // =============================================================================
 // Flyleaves

@@ -215,8 +215,7 @@ fn test_validation_reasonable_margins_all_arrangements() {
         };
         assert!(
             options.validate().is_ok(),
-            "Reasonable margins should pass for {:?}",
-            arrangement
+            "Reasonable margins should pass for {arrangement:?}"
         );
     }
 }

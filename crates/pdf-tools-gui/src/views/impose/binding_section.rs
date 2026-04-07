@@ -15,14 +15,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
 
             ui.add_space(5.0);
 
-            if state.options.binding_type.uses_signatures() {
-                if show_arrangement_selector(
+            if state.options.binding_type.uses_signatures()
+                && show_arrangement_selector(
                     ui,
                     &mut state.options.page_arrangement,
                     &mut state.options.sheets_per_signature,
-                ) {
-                    state.needs_regeneration = true;
-                }
+                )
+            {
+                state.needs_regeneration = true;
             }
         });
 }
@@ -59,7 +59,7 @@ fn show_binding_type_selector(ui: &mut egui::Ui, binding_type: &mut BindingType)
     ui.horizontal(|ui| {
         for (value, label, tooltip) in options {
             if ui
-                .selectable_value(binding_type, value.clone(), *label)
+                .selectable_value(binding_type, *value, *label)
                 .on_hover_text(*tooltip)
                 .changed()
             {
@@ -115,7 +115,7 @@ fn show_arrangement_selector(
         }
 
         let pages_per_sig = arrangement.pages_per_sheet() * *sheets_per_signature;
-        ui.weak(format!("({} pages/signature)", pages_per_sig));
+        ui.weak(format!("({pages_per_sig} pages/signature)"));
     });
 
     changed

@@ -10,11 +10,10 @@ pub enum PaperType {
 impl PaperType {
     pub fn dimensions_mm(&self) -> (f32, f32) {
         match self {
-            PaperType::Letter => (215.9, 279.4),
             PaperType::Legal => (215.9, 355.6),
             PaperType::A4 => (210.0, 297.0),
             PaperType::A5 => (148.0, 210.0),
-            PaperType::Custom => (215.9, 279.4),
+            PaperType::Letter | PaperType::Custom => (215.9, 279.4),
         }
     }
 
@@ -49,7 +48,7 @@ impl MeasurementSystem {
         match self {
             MeasurementSystem::Inches => value * 25.4,
             MeasurementSystem::Millimeters => value,
-            MeasurementSystem::Points => value * 0.352778,
+            MeasurementSystem::Points => value * 0.352_778,
         }
     }
 
@@ -57,7 +56,7 @@ impl MeasurementSystem {
         match self {
             MeasurementSystem::Inches => value / 25.4,
             MeasurementSystem::Millimeters => value,
-            MeasurementSystem::Points => value / 0.352778,
+            MeasurementSystem::Points => value / 0.352_778,
         }
     }
 }

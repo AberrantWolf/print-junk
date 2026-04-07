@@ -100,7 +100,7 @@ pub fn create_folio_spread(leaf_bounds: Rect) -> SpreadPosition {
 
 /// Create spread positions for a quarto (2 spreads stacked) arrangement.
 ///
-/// Returns [bottom_spread, top_spread] where top is rotated 180 degrees.
+/// Returns [`bottom_spread`, `top_spread`] where top is rotated 180 degrees.
 pub fn create_quarto_spreads(leaf_bounds: Rect, cut_gap: f32) -> Vec<SpreadPosition> {
     let half_height = (leaf_bounds.height - cut_gap) / 2.0;
 

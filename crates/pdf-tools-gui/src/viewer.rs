@@ -16,12 +16,11 @@ pub fn init_pdfium() -> Result<Pdfium, PdfiumError> {
         if p.exists() { Some(p) } else { None }
     });
 
-    if let Some(vendor_path) = vendor_path {
-        if let Ok(binding) =
+    if let Some(vendor_path) = vendor_path
+        && let Ok(binding) =
             Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&vendor_path))
-        {
-            return Ok(Pdfium::new(binding));
-        }
+    {
+        return Ok(Pdfium::new(binding));
     }
 
     // Fallback to system library or default search paths
@@ -48,7 +47,7 @@ const MAX_CACHED_PAGES: usize = 50;
 #[cfg(feature = "pdf-viewer")]
 const MAX_RENDER_DIMENSION: i32 = 4096;
 
-/// Legacy render dimensions used when zoom_level is 0.0 (impose/flashcard previews)
+/// Legacy render dimensions used when `zoom_level` is 0.0 (impose/flashcard previews)
 #[cfg(feature = "pdf-viewer")]
 const LEGACY_TARGET_WIDTH: i32 = 600;
 #[cfg(feature = "pdf-viewer")]
@@ -69,7 +68,7 @@ pub fn quantize_zoom(zoom: f32) -> u32 {
 }
 
 /// Compute render dimensions for a given page size and zoom level.
-/// Returns (target_width, max_height) suitable for PdfRenderConfig.
+/// Returns (`target_width`, `max_height`) suitable for `PdfRenderConfig`.
 /// If zoom is 0.0, returns legacy fixed dimensions (600x800).
 #[cfg(feature = "pdf-viewer")]
 pub fn render_dimensions(page_width_pts: f32, page_height_pts: f32, zoom: f32) -> (i32, i32) {
@@ -81,7 +80,7 @@ pub fn render_dimensions(page_width_pts: f32, page_height_pts: f32, zoom: f32) -
     (w.min(MAX_RENDER_DIMENSION), h.min(MAX_RENDER_DIMENSION))
 }
 
-/// Build a PdfRenderConfig for the given dimensions.
+/// Build a `PdfRenderConfig` for the given dimensions.
 #[cfg(feature = "pdf-viewer")]
 pub fn make_render_config(page_width_pts: f32, page_height_pts: f32, zoom: f32) -> PdfRenderConfig {
     let (w, h) = render_dimensions(page_width_pts, page_height_pts, zoom);
@@ -109,13 +108,13 @@ pub struct ViewerState {
 
 #[cfg(feature = "pdf-viewer")]
 impl ViewerState {
-    pub fn new() -> Result<Self, String> {
-        Ok(Self {
+    pub fn new() -> Self {
+        Self {
             documents: HashMap::new(),
             page_cache: HashMap::new(),
             cache_order: VecDeque::new(),
             next_doc_id: AtomicU64::new(0),
-        })
+        }
     }
 
     pub fn next_id(&self) -> DocumentId {
@@ -130,8 +129,8 @@ impl ViewerState {
         self.documents.insert(doc_id, DocumentSource::Bytes(bytes));
     }
 
-    pub fn get_document(&self, doc_id: &DocumentId) -> Option<&DocumentSource> {
-        self.documents.get(doc_id)
+    pub fn get_document(&self, doc_id: DocumentId) -> Option<&DocumentSource> {
+        self.documents.get(&doc_id)
     }
 
     pub fn add_to_cache(&mut self, key: CacheKey, page: CachedPage) {

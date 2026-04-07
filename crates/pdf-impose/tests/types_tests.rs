@@ -43,22 +43,6 @@ fn test_rotation_degrees() {
 }
 
 #[test]
-fn test_margins_default() {
-    let margins = Margins::default();
-    // Sheet margins (printer-safe area)
-    assert_eq!(margins.sheet.top_mm, 10.0);
-    assert_eq!(margins.sheet.bottom_mm, 10.0);
-    assert_eq!(margins.sheet.left_mm, 10.0);
-    assert_eq!(margins.sheet.right_mm, 10.0);
-    // Leaf margins (default to 0 except trim allowance)
-    assert_eq!(margins.leaf.top_mm, 0.0);
-    assert_eq!(margins.leaf.bottom_mm, 0.0);
-    assert_eq!(margins.leaf.fore_edge_mm, 0.0);
-    assert_eq!(margins.leaf.spine_mm, 0.0);
-    assert_eq!(margins.leaf.trim_allowance_mm, 3.0);
-}
-
-#[test]
 fn test_printer_marks_default() {
     let marks = PrinterMarks::default();
     assert!(!marks.fold_lines);

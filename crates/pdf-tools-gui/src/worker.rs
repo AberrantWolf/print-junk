@@ -9,15 +9,7 @@ pub async fn worker_task(
     update_tx: mpsc::UnboundedSender<PdfUpdate>,
 ) {
     #[cfg(feature = "pdf-viewer")]
-    let mut viewer_state = match viewer::ViewerState::new() {
-        Ok(state) => Some(state),
-        Err(e) => {
-            let _ = update_tx.send(PdfUpdate::Error {
-                message: format!("Failed to initialize PDF viewer: {}", e),
-            });
-            None
-        }
-    };
+    let mut viewer_state = Some(viewer::ViewerState::new());
 
     let mut impose_doc_store = handlers::impose::ImposeDocStore::new();
 
@@ -56,7 +48,7 @@ async fn process_command(
             handlers::impose::handle_load(input_path, update_tx).await;
         }
         PdfCommand::ImposeProcess { .. } => {
-            handlers::impose::handle_process(update_tx).await;
+            handlers::impose::handle_process(update_tx);
         }
         PdfCommand::ImposeGeneratePreview { mut options } => {
             // Drain any queued preview commands, keeping only the most recent
@@ -113,7 +105,7 @@ async fn process_command(
             page_count,
         } => {
             if let Some(state) = viewer_state {
-                handlers::viewer::handle_load_bytes(pdf_bytes, page_count, state, update_tx).await;
+                handlers::viewer::handle_load_bytes(pdf_bytes, page_count, state, update_tx);
             } else {
                 let _ = update_tx.send(PdfUpdate::Error {
                     message: "PDF viewer not initialized".to_string(),
@@ -179,7 +171,7 @@ async fn process_command(
         #[cfg(feature = "pdf-viewer")]
         PdfCommand::ViewerClose { doc_id } => {
             if let Some(state) = viewer_state {
-                handlers::viewer::handle_close(doc_id, state, update_tx).await;
+                handlers::viewer::handle_close(doc_id, state, update_tx);
             }
         }
         #[cfg(not(feature = "pdf-viewer"))]
