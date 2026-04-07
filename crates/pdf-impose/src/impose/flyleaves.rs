@@ -24,7 +24,10 @@ pub(crate) fn add_flyleaves(mut doc: Document, front: usize, back: usize) -> Res
     }
 
     // Get media box from first page
-    let first_page_id = *pages.values().next().unwrap();
+    let first_page_id = *pages
+        .values()
+        .next()
+        .ok_or_else(|| ImposeError::Config("No pages found for flyleaf reference".to_string()))?;
     let media_box = get_media_box(&doc, first_page_id)?;
 
     // Get pages tree

@@ -39,9 +39,20 @@ pub async fn impose(documents: &[Document], options: &ImpositionOptions) -> Resu
 fn impose_sync(documents: &[Document], options: &ImpositionOptions) -> Result<Document> {
     // Merge all input documents into a single source
     let mut merged = merge_documents(documents)?;
+    log::debug!(
+        "Merged {} documents into {} pages",
+        documents.len(),
+        merged.get_pages().len()
+    );
 
     // Add flyleaves (each flyleaf = 1 leaf = 2 pages)
     if options.front_flyleaves > 0 || options.back_flyleaves > 0 {
+        log::debug!(
+            "Adding {} front + {} back flyleaves ({} blank pages)",
+            options.front_flyleaves,
+            options.back_flyleaves,
+            (options.front_flyleaves + options.back_flyleaves) * 2
+        );
         merged = add_flyleaves(merged, options.front_flyleaves, options.back_flyleaves)?;
     }
 
@@ -53,6 +64,14 @@ fn impose_sync(documents: &[Document], options: &ImpositionOptions) -> Result<Do
     if total_pages == 0 {
         return Err(ImposeError::NoPages);
     }
+
+    log::info!(
+        "Imposing {} pages: {:?} binding, {:?} arrangement, {} sheets/sig",
+        total_pages,
+        options.binding_type,
+        options.page_arrangement,
+        options.sheets_per_signature
+    );
 
     // Dispatch based on binding type
     if options.binding_type.uses_signatures() {

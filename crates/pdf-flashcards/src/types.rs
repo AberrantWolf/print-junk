@@ -14,6 +14,31 @@ pub enum FlashcardError {
 
 pub type Result<T> = std::result::Result<T, FlashcardError>;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum FlashcardWarning {
+    /// A CSV row was skipped because it had fewer than 2 columns
+    CsvRowSkipped { row_number: usize, column_count: usize },
+    /// The CSV file contained no usable flashcard rows
+    EmptyCsv,
+}
+
+impl std::fmt::Display for FlashcardWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FlashcardWarning::CsvRowSkipped {
+                row_number,
+                column_count,
+            } => write!(
+                f,
+                "Row {row_number}: skipped (has {column_count} column(s), need at least 2)"
+            ),
+            FlashcardWarning::EmptyCsv => {
+                write!(f, "CSV file contained no usable flashcard rows (need at least 2 columns per row)")
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Flashcard {
     pub front: String,
