@@ -1,15 +1,15 @@
 //! Cascade assembly — tiles multiple imposed sheets onto a single larger output page.
 //!
-//! Each imposed sheet side is rendered into a Form XObject, then multiple XObjects
+//! Each imposed sheet side is rendered into a Form `XObject`, then multiple `XObject`s
 //! are placed in a grid on the cascade output page. Front and back sides are
 //! mirrored according to the flip axis for correct duplex alignment.
 
 use crate::constants::{CASCADE_CUT_LINE_WIDTH, mm_to_pt};
-use crate::types::{CascadeConfig, FlipAxis, Result, SheetMargins};
+use crate::types::{CascadeConfig, FlipAxis, SheetMargins};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::fmt::Write;
 
-/// A pair of Form XObject IDs representing one imposed sheet (front + back)
+/// A pair of Form `XObject` IDs representing one imposed sheet (front + back)
 pub(crate) struct CascadeCell {
     pub front_xobject: ObjectId,
     pub back_xobject: ObjectId,
@@ -28,7 +28,7 @@ pub(crate) fn render_cascade_page(
     cascade_height_pt: f32,
     sheet_margins: &SheetMargins,
     parent_pages_id: ObjectId,
-) -> Result<(ObjectId, ObjectId)> {
+) -> (ObjectId, ObjectId) {
     let gap = mm_to_pt(cascade.margin_mm);
     let margin_left = mm_to_pt(sheet_margins.left_mm);
     let margin_bottom = mm_to_pt(sheet_margins.bottom_mm);
@@ -65,7 +65,7 @@ pub(crate) fn render_cascade_page(
         &cut_lines,
         parent_pages_id,
         false, // front — no flip
-    )?;
+    );
 
     // Back page
     let back_id = render_cascade_side(
@@ -82,9 +82,9 @@ pub(crate) fn render_cascade_page(
         &cut_lines,
         parent_pages_id,
         true, // back — apply flip
-    )?;
+    );
 
-    Ok((front_id, back_id))
+    (front_id, back_id)
 }
 
 /// Render one side (front or back) of a cascade page.
@@ -102,7 +102,7 @@ fn render_cascade_side(
     cut_lines: &str,
     parent_pages_id: ObjectId,
     is_back: bool,
-) -> Result<ObjectId> {
+) -> ObjectId {
     let mut content_ops = String::new();
     let mut xobjects = Dictionary::new();
 
@@ -132,7 +132,7 @@ fn render_cascade_side(
         let name = format!("C{idx}");
         xobjects.set(name.as_bytes(), Object::Reference(xobject_id));
 
-        let _ = write!(content_ops, "q 1 0 0 1 {x} {y} cm /{name} Do Q\n");
+        let _ = writeln!(content_ops, "q 1 0 0 1 {x} {y} cm /{name} Do Q");
     }
 
     // Add cut lines
@@ -160,7 +160,7 @@ fn render_cascade_side(
     page_dict.set("Contents", Object::Reference(content_id));
     page_dict.set("Resources", Object::Dictionary(resources));
 
-    Ok(output.add_object(page_dict))
+    output.add_object(page_dict)
 }
 
 /// Generate PDF content stream operations for cascade cut lines.
@@ -179,20 +179,20 @@ fn generate_cascade_cut_lines(
     offset_y: f32,
 ) -> String {
     let mut ops = String::new();
-    let _ = write!(ops, "q {CASCADE_CUT_LINE_WIDTH} w [] 0 d\n");
+    let _ = writeln!(ops, "q {CASCADE_CUT_LINE_WIDTH} w [] 0 d");
 
     // Vertical cut lines (between columns)
     for col in 1..cols {
         let x = offset_x + col as f32 * cell_width_pt + (col as f32 - 0.5) * gap;
-        let _ = write!(ops, "{x} 0 m {x} {total_height_pt} l S\n");
+        let _ = writeln!(ops, "{x} 0 m {x} {total_height_pt} l S");
     }
 
     // Horizontal cut lines (between rows)
     for row in 1..rows {
         let y = offset_y + row as f32 * cell_height_pt + (row as f32 - 0.5) * gap;
-        let _ = write!(ops, "0 {y} m {total_width_pt} {y} l S\n");
+        let _ = writeln!(ops, "0 {y} m {total_width_pt} {y} l S");
     }
 
-    let _ = write!(ops, "Q\n");
+    let _ = writeln!(ops, "Q");
     ops
 }

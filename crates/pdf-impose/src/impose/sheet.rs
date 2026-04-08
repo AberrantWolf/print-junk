@@ -19,7 +19,7 @@ use std::collections::HashMap;
 pub(crate) struct SheetContent {
     /// PDF content stream operations
     pub content: String,
-    /// XObject references used in the content
+    /// `XObject` references used in the content
     pub xobjects: Dictionary,
     /// Font references used in the content
     pub fonts: Dictionary,
@@ -28,8 +28,8 @@ pub(crate) struct SheetContent {
 /// Generate the content for one side of a sheet without creating a page.
 ///
 /// This is the reusable core of sheet rendering. It produces the PDF content
-/// stream, XObject references, and font references that can be assembled
-/// into either a page (normal path) or a Form XObject (cascade path).
+/// stream, `XObject` references, and font references that can be assembled
+/// into either a page (normal path) or a Form `XObject` (cascade path).
 pub(crate) fn generate_sheet_content(
     output: &mut Document,
     source: &Document,
@@ -165,13 +165,13 @@ pub(crate) fn render_sheet_spreads(
     Ok(output.add_object(page_dict))
 }
 
-/// Create a Form XObject from sheet content, suitable for embedding in a cascade page.
+/// Create a Form `XObject` from sheet content, suitable for embedding in a cascade page.
 pub(crate) fn create_sheet_xobject(
     output: &mut Document,
     sheet: SheetContent,
     width_pt: f32,
     height_pt: f32,
-) -> Result<ObjectId> {
+) -> ObjectId {
     let mut resources = Dictionary::new();
     resources.set("XObject", Object::Dictionary(sheet.xobjects));
     if !sheet.fonts.is_empty() {
@@ -193,7 +193,7 @@ pub(crate) fn create_sheet_xobject(
     xobject_dict.set("Resources", Object::Dictionary(resources));
 
     let stream = Stream::new(xobject_dict, sheet.content.into_bytes());
-    Ok(output.add_object(stream))
+    output.add_object(stream)
 }
 
 // =============================================================================
