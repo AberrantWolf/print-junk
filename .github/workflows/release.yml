@@ -23,7 +23,7 @@ jobs:
             archive_ext: tar.gz
             lib_name: libpdfium.so
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest
             archive_ext: tar.gz
             lib_name: libpdfium.dylib
           - target: aarch64-apple-darwin
