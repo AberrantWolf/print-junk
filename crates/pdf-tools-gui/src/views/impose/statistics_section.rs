@@ -19,6 +19,10 @@ pub fn show(ui: &mut egui::Ui, state: &ImposeState) {
                     ui.label(format!("Number of signatures: {sig_count}"));
                 }
 
+                if let Some(cells) = stats.cascade_cells_per_sheet {
+                    ui.label(format!("Cascade cells per sheet: {cells}"));
+                }
+
                 if let Some(ref pages_per_sig) = stats.pages_per_signature
                     && !pages_per_sig.is_empty()
                 {
