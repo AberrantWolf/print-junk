@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PDF Tools
+Comment=PDF processing tools for printers and bookbinders
+Exec=pdf-tools-gui
+Icon=pdf-tools-gui
+Categories=Office;Graphics;
+MimeType=application/pdf;
+Terminal=false

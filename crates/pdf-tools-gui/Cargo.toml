@@ -36,3 +36,6 @@ tokio = { workspace = true, features = ["sync"] }
 ureq = { version = "2", features = ["native-tls"] }
 flate2 = "1"
 tar = "0.4"
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+winresource = "0.1"

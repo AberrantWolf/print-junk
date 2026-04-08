@@ -1,12 +1,41 @@
-# 📦 Installation Guide
+# Installation Guide
 
 ## From a release
 
-Download the archive for your platform from the [Releases page](https://github.com/AberrantWolf/pdf-tools/releases) and extract it. Keep all files in the same directory.
+Download from the [Releases page](https://github.com/AberrantWolf/pdf-tools/releases). The GUI and CLI are separate downloads.
 
-### 🐧 Linux dependencies
+### GUI (PDF Tools)
 
-The GUI requires a few system libraries for graphics and file dialogs:
+| Platform | Download | Install |
+|----------|----------|---------|
+| macOS (Apple Silicon) | `PDF-Tools-vX.Y.Z-macos-arm64.zip` | Unzip, drag **PDF Tools.app** to Applications |
+| macOS (Intel) | `PDF-Tools-vX.Y.Z-macos-x64.zip` | Unzip, drag **PDF Tools.app** to Applications |
+| Linux (x64) | `PDF-Tools-vX.Y.Z-linux-x64.AppImage` | `chmod +x` the file, then double-click or run it |
+| Windows (x64) | `PDF-Tools-vX.Y.Z-windows-x64.zip` | Unzip, run `pdf-tools-gui.exe` |
+
+### CLI (pdft)
+
+| Platform | Download |
+|----------|----------|
+| macOS (Apple Silicon) | `pdft-vX.Y.Z-macos-arm64.tar.gz` |
+| macOS (Intel) | `pdft-vX.Y.Z-macos-x64.tar.gz` |
+| Linux (x64) | `pdft-vX.Y.Z-linux-x64.tar.gz` |
+| Windows (x64) | `pdft-vX.Y.Z-windows-x64.zip` |
+
+Extract and place `pdft` somewhere on your PATH.
+
+### Platform notes
+
+#### macOS Gatekeeper
+
+Since the app isn't signed yet, macOS may block it. To allow it:
+
+- Right-click the app and select "Open", or
+- Run `xattr -cr "PDF Tools.app"` in Terminal
+
+#### Linux dependencies
+
+The AppImage bundles its dependencies, but if you run the binary directly you may need:
 
 ```bash
 # Debian/Ubuntu
@@ -19,14 +48,7 @@ sudo dnf install libxcb libxkbcommon mesa-libGL gtk3
 sudo pacman -S libxcb libxkbcommon mesa gtk3
 ```
 
-### 🍎 macOS Gatekeeper
-
-Since the app isn't signed, macOS may block it. To allow it:
-
-- Right-click the app → "Open", or
-- Run `xattr -cr pdf-tools-gui` in the extracted directory
-
-### 🪟 Windows
+#### Windows
 
 You may need the [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) if it isn't already installed.
 
@@ -36,9 +58,9 @@ You may need the [Visual C++ Redistributable](https://learn.microsoft.com/en-us/
 
 | Platform | Architectures |
 |----------|---------------|
-| 🍎 macOS | Intel (x64), Apple Silicon (arm64) |
-| 🐧 Linux | x64, arm64 |
-| 🪟 Windows | x64, x86, arm64 |
+| macOS | Intel (x64), Apple Silicon (arm64) |
+| Linux | x64, arm64 |
+| Windows | x64, x86, arm64 |
 
 ### Building
 
@@ -74,7 +96,11 @@ sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
 
 ### "Failed to load PDFium" at runtime
 
-Make sure the PDFium library file (`libpdfium.dylib`, `libpdfium.so`, or `pdfium.dll`) is in the same directory as the `pdf-tools-gui` binary.
+Make sure the PDFium library file (`libpdfium.dylib`, `libpdfium.so`, or `pdfium.dll`) is in the expected location:
+- **macOS .app**: bundled inside `PDF Tools.app/Contents/Frameworks/`
+- **Linux AppImage**: bundled inside the AppImage
+- **Windows zip**: `pdfium.dll` must be in the same directory as `pdf-tools-gui.exe`
+- **From source**: automatically handled by the build script
 
 ### Force re-download of PDFium
 
