@@ -76,7 +76,11 @@ startxref
             .parent()
             .and_then(|p| p.parent())
             .expect("Failed to find workspace root");
-        let pdfium_lib_path = workspace_root.join("vendor/pdfium/lib");
+        let pdfium_lib_path = if cfg!(target_os = "windows") {
+            workspace_root.join("vendor/pdfium/bin")
+        } else {
+            workspace_root.join("vendor/pdfium/lib")
+        };
         let pdfium_lib_name = if cfg!(target_os = "macos") {
             "libpdfium.dylib"
         } else if cfg!(target_os = "windows") {
