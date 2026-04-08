@@ -157,7 +157,33 @@ fn extract_tarball(tarball: &Path, dest: &Path) {
     let tar_gz = fs::File::open(tarball).expect("Failed to open tarball");
     let tar = GzDecoder::new(tar_gz);
     let mut archive = Archive::new(tar);
-    archive.unpack(dest).expect("Failed to extract tarball");
+
+    for entry in archive.entries().expect("Failed to read tarball entries") {
+        let mut entry = entry.expect("Failed to read tarball entry");
+        let path = entry
+            .path()
+            .expect("Failed to read entry path")
+            .to_path_buf();
+        let entry_type = entry.header().entry_type();
+
+        // Skip symlinks on Windows — the tar crate can silently fail on them
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            println!("cargo:warning=Skipping link entry: {}", path.display());
+            continue;
+        }
+
+        let out_path = dest.join(&path);
+        if entry_type.is_dir() {
+            fs::create_dir_all(&out_path).expect("Failed to create directory");
+        } else if entry_type.is_file() {
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent).expect("Failed to create parent directory");
+            }
+            entry.unpack(&out_path).unwrap_or_else(|e| {
+                panic!("Failed to extract {}: {e}", path.display());
+            });
+        }
+    }
 }
 
 fn fix_library_install_name(lib_path: &Path, platform: &str) {
