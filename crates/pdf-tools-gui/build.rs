@@ -3,6 +3,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let workspace_root = manifest_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("Failed to find workspace root");
+
+    // Generate icon assets from source image
+    generate_icons(workspace_root, &manifest_dir);
+
     // Embed icon and version info in Windows executables
     #[cfg(target_os = "windows")]
     {
@@ -66,11 +75,6 @@ fn main() {
     };
 
     // Set up paths relative to the repository root
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let workspace_root = manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("Failed to find workspace root");
     let pdfium_dir = workspace_root.join("vendor").join("pdfium");
     let include_dir = pdfium_dir.join("include");
     // Windows archives put the DLL in bin/ and the import lib (.dll.lib) in lib/
@@ -148,6 +152,134 @@ fn main() {
     fix_library_install_name(&lib_path, platform);
 
     configure_linking(&link_dir, &include_dir);
+}
+
+fn generate_icons(workspace_root: &Path, manifest_dir: &Path) {
+    use image::imageops::FilterType;
+
+    let source = workspace_root.join("res").join("icon.png");
+    let assets_dir = manifest_dir.join("assets");
+
+    println!("cargo:rerun-if-changed={}", source.display());
+
+    if !source.exists() {
+        println!(
+            "cargo:warning=Source icon not found at {}, skipping icon generation",
+            source.display()
+        );
+        return;
+    }
+
+    // Skip if source hasn't changed (compare modification times)
+    let source_mtime = fs::metadata(&source).and_then(|m| m.modified()).ok();
+    let png_output = assets_dir.join("icon-256.png");
+    let png_mtime = fs::metadata(&png_output).and_then(|m| m.modified()).ok();
+    if let (Some(src), Some(dst)) = (source_mtime, png_mtime) {
+        if dst >= src {
+            return;
+        }
+    }
+
+    println!(
+        "cargo:warning=Generating icon assets from {}",
+        source.display()
+    );
+    fs::create_dir_all(&assets_dir).expect("Failed to create assets directory");
+
+    let img = image::open(&source).expect("Failed to load source icon");
+
+    // Generate icon-256.png
+    let img_256 = img.resize_exact(256, 256, FilterType::Lanczos3);
+    img_256
+        .save(&png_output)
+        .expect("Failed to save icon-256.png");
+
+    // Generate icon.ico (multi-resolution: 16, 32, 48, 256)
+    generate_ico(&img, &assets_dir.join("icon.ico"));
+
+    // Generate icon.icns (multi-resolution: 16, 32, 64, 128, 256)
+    generate_icns(&img, &assets_dir.join("icon.icns"));
+
+    println!("cargo:warning=Icon assets generated successfully");
+}
+
+fn generate_ico(img: &image::DynamicImage, output: &Path) {
+    use image::imageops::FilterType;
+    use std::io::Write;
+
+    let sizes: &[u32] = &[16, 32, 48, 256];
+    let mut png_entries: Vec<Vec<u8>> = Vec::new();
+
+    for &size in sizes {
+        let resized = img.resize_exact(size, size, FilterType::Lanczos3);
+        let mut png_data = Vec::new();
+        resized
+            .write_to(
+                &mut std::io::Cursor::new(&mut png_data),
+                image::ImageFormat::Png,
+            )
+            .expect("Failed to encode PNG for ICO");
+        png_entries.push(png_data);
+    }
+
+    let mut ico = Vec::new();
+    // ICO header: reserved (2), type=1 (2), count (2)
+    ico.write_all(&[0, 0]).unwrap(); // reserved
+    ico.write_all(&1u16.to_le_bytes()).unwrap(); // type: ICO
+    ico.write_all(&(sizes.len() as u16).to_le_bytes()).unwrap();
+
+    // Calculate data offset: header(6) + entries(16 each)
+    let mut data_offset: u32 = 6 + (sizes.len() as u32) * 16;
+
+    // Directory entries
+    for (i, &size) in sizes.iter().enumerate() {
+        let width_byte = if size >= 256 { 0u8 } else { size as u8 };
+        ico.push(width_byte); // width
+        ico.push(width_byte); // height
+        ico.push(0); // color palette count
+        ico.push(0); // reserved
+        ico.write_all(&1u16.to_le_bytes()).unwrap(); // color planes
+        ico.write_all(&32u16.to_le_bytes()).unwrap(); // bits per pixel
+        ico.write_all(&(png_entries[i].len() as u32).to_le_bytes())
+            .unwrap();
+        ico.write_all(&data_offset.to_le_bytes()).unwrap();
+        data_offset += png_entries[i].len() as u32;
+    }
+
+    // Image data
+    for entry in &png_entries {
+        ico.write_all(entry).unwrap();
+    }
+
+    fs::write(output, &ico).expect("Failed to write icon.ico");
+}
+
+fn generate_icns(img: &image::DynamicImage, output: &Path) {
+    use icns::{IconFamily, IconType, Image as IcnsImage, PixelFormat};
+    use image::imageops::FilterType;
+
+    let icon_types: &[(u32, IconType)] = &[
+        (16, IconType::RGBA32_16x16),
+        (32, IconType::RGBA32_32x32),
+        (64, IconType::RGBA32_64x64),
+        (128, IconType::RGBA32_128x128),
+        (256, IconType::RGBA32_256x256),
+    ];
+
+    let mut family = IconFamily::new();
+
+    for &(size, icon_type) in icon_types {
+        let resized = img.resize_exact(size, size, FilterType::Lanczos3);
+        let rgba = resized.to_rgba8();
+        let icns_image = IcnsImage::from_data(PixelFormat::RGBA, size, size, rgba.into_raw())
+            .unwrap_or_else(|e| panic!("Failed to create ICNS image {size}x{size}: {e}"));
+        family
+            .add_icon_with_type(&icns_image, icon_type)
+            .unwrap_or_else(|e| panic!("Failed to add ICNS icon {size}x{size}: {e}"));
+    }
+
+    let file = fs::File::create(output).expect("Failed to create icon.icns");
+    family.write(file).expect("Failed to write icon.icns");
 }
 
 fn configure_linking(lib_dir: &Path, include_dir: &Path) {
