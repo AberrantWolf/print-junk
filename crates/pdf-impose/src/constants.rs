@@ -57,6 +57,9 @@ pub const CROP_MARK_GAP: f32 = 9.0;
 /// Size of registration marks (points)
 pub const REGISTRATION_MARK_SIZE: f32 = 10.0;
 
+/// Line width for cascade cut lines (points)
+pub const CASCADE_CUT_LINE_WIDTH: f32 = 0.5;
+
 // =============================================================================
 // Sewing & Collation Marks
 // =============================================================================

@@ -1,6 +1,7 @@
 mod actions_section;
 mod additional_section;
 mod binding_section;
+mod cascade_section;
 mod input_section;
 mod margins_section;
 mod marks_section;
@@ -37,6 +38,11 @@ pub fn show_impose(
                 ui.add_space(10.0);
 
                 output_section::show(ui, state);
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(10.0);
+
+                cascade_section::show(ui, state);
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(10.0);

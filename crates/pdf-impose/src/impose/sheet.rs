@@ -12,27 +12,36 @@ use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::collections::HashMap;
 
 // =============================================================================
-// Spread-Based Sheet Rendering
+// Sheet Content Generation
 // =============================================================================
 
-/// Render one side of a sheet using spread-based layout
-pub(crate) fn render_sheet_spreads(
+/// Generated content for one side of an imposed sheet
+pub(crate) struct SheetContent {
+    /// PDF content stream operations
+    pub content: String,
+    /// XObject references used in the content
+    pub xobjects: Dictionary,
+    /// Font references used in the content
+    pub fonts: Dictionary,
+}
+
+/// Generate the content for one side of a sheet without creating a page.
+///
+/// This is the reusable core of sheet rendering. It produces the PDF content
+/// stream, XObject references, and font references that can be assembled
+/// into either a page (normal path) or a Form XObject (cascade path).
+pub(crate) fn generate_sheet_content(
     output: &mut Document,
     source: &Document,
     source_page_ids: &[ObjectId],
     layout: &SpreadSheetLayout,
     cut_edges: &[SpreadCutEdges],
     source_dimensions: &[(f32, f32)],
-    sheet_width_pt: f32,
-    sheet_height_pt: f32,
-    parent_pages_id: ObjectId,
     options: &ImpositionOptions,
     signature_index: usize,
     total_signatures: usize,
     sheet_in_signature: usize,
-) -> Result<ObjectId> {
-    let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);
-
+) -> Result<SheetContent> {
     let mut content_ops = Vec::new();
     let mut xobjects = Dictionary::new();
     let mut fonts = Dictionary::new();
@@ -98,21 +107,93 @@ pub(crate) fn render_sheet_spreads(
         fonts.set("F1", Object::Reference(font_id));
     }
 
+    Ok(SheetContent {
+        content: content_ops.join(""),
+        xobjects,
+        fonts,
+    })
+}
+
+// =============================================================================
+// Spread-Based Sheet Rendering
+// =============================================================================
+
+/// Render one side of a sheet using spread-based layout
+pub(crate) fn render_sheet_spreads(
+    output: &mut Document,
+    source: &Document,
+    source_page_ids: &[ObjectId],
+    layout: &SpreadSheetLayout,
+    cut_edges: &[SpreadCutEdges],
+    source_dimensions: &[(f32, f32)],
+    sheet_width_pt: f32,
+    sheet_height_pt: f32,
+    parent_pages_id: ObjectId,
+    options: &ImpositionOptions,
+    signature_index: usize,
+    total_signatures: usize,
+    sheet_in_signature: usize,
+) -> Result<ObjectId> {
+    let sheet = generate_sheet_content(
+        output,
+        source,
+        source_page_ids,
+        layout,
+        cut_edges,
+        source_dimensions,
+        options,
+        signature_index,
+        total_signatures,
+        sheet_in_signature,
+    )?;
+
+    let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);
+
     // Build resources
     let mut resources = Dictionary::new();
-    resources.set("XObject", Object::Dictionary(xobjects));
-    if !fonts.is_empty() {
-        resources.set("Font", Object::Dictionary(fonts));
+    resources.set("XObject", Object::Dictionary(sheet.xobjects));
+    if !sheet.fonts.is_empty() {
+        resources.set("Font", Object::Dictionary(sheet.fonts));
     }
 
     // Create content stream
-    let content = content_ops.join("");
-    let content_id = output.add_object(Stream::new(Dictionary::new(), content.into_bytes()));
+    let content_id = output.add_object(Stream::new(Dictionary::new(), sheet.content.into_bytes()));
 
     page_dict.set("Contents", Object::Reference(content_id));
     page_dict.set("Resources", Object::Dictionary(resources));
 
     Ok(output.add_object(page_dict))
+}
+
+/// Create a Form XObject from sheet content, suitable for embedding in a cascade page.
+pub(crate) fn create_sheet_xobject(
+    output: &mut Document,
+    sheet: SheetContent,
+    width_pt: f32,
+    height_pt: f32,
+) -> Result<ObjectId> {
+    let mut resources = Dictionary::new();
+    resources.set("XObject", Object::Dictionary(sheet.xobjects));
+    if !sheet.fonts.is_empty() {
+        resources.set("Font", Object::Dictionary(sheet.fonts));
+    }
+
+    let mut xobject_dict = Dictionary::new();
+    xobject_dict.set("Type", Object::Name(b"XObject".to_vec()));
+    xobject_dict.set("Subtype", Object::Name(b"Form".to_vec()));
+    xobject_dict.set(
+        "BBox",
+        Object::Array(vec![
+            Object::Integer(0),
+            Object::Integer(0),
+            Object::Real(width_pt),
+            Object::Real(height_pt),
+        ]),
+    );
+    xobject_dict.set("Resources", Object::Dictionary(resources));
+
+    let stream = Stream::new(xobject_dict, sheet.content.into_bytes());
+    Ok(output.add_object(stream))
 }
 
 // =============================================================================

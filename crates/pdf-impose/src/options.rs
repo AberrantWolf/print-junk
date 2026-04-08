@@ -3,8 +3,8 @@ use crate::layout::Rect;
 use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
 use crate::layout::spread::calculate_spread_content;
 use crate::types::{
-    BindingType, ImposeError, Margins, Orientation, OutputFormat, PageArrangement, PaperSize,
-    PrinterMarks, Result, Rotation, ScalingMode, SewingConfig, SplitMode,
+    BindingType, CascadeConfig, ImposeError, Margins, Orientation, OutputFormat, PageArrangement,
+    PaperSize, PrinterMarks, Result, Rotation, ScalingMode, SewingConfig, SplitMode,
 };
 use std::path::PathBuf;
 
@@ -52,6 +52,9 @@ pub struct ImpositionOptions {
 
     // Rotation for source pages
     pub source_rotation: Rotation,
+
+    // Cascade (tile multiple imposed sheets on a larger output page)
+    pub cascade: Option<CascadeConfig>,
 }
 
 impl Default for ImpositionOptions {
@@ -74,6 +77,7 @@ impl Default for ImpositionOptions {
             back_flyleaves: 0,
             split_mode: SplitMode::None,
             source_rotation: Rotation::None,
+            cascade: None,
         }
     }
 }
@@ -102,24 +106,79 @@ impl ImpositionOptions {
         Ok(())
     }
 
-    /// Calculate output sheet dimensions in points
-    pub fn sheet_dimensions_pt(&self) -> (f32, f32) {
+    /// Raw paper dimensions in points (before cascade cell derivation)
+    fn raw_paper_dimensions_pt(&self) -> (f32, f32) {
         let (width_mm, height_mm) = self
             .output_paper_size
             .dimensions_with_orientation(self.output_orientation);
         (mm_to_pt(width_mm), mm_to_pt(height_mm))
     }
 
-    /// Calculate the leaf area bounds (inside sheet margins) in points
+    /// Calculate the cell dimensions when cascade is active.
+    ///
+    /// The cell size is derived by dividing the available cascade sheet area
+    /// (after subtracting sheet margins and inter-cell gaps) by the grid dimensions.
+    pub fn cell_dimensions_pt(&self) -> Option<(f32, f32)> {
+        let cascade = self.cascade.as_ref()?;
+        if cascade.is_trivial() {
+            return None;
+        }
+        let (sheet_w, sheet_h) = self.raw_paper_dimensions_pt();
+        let margins = &self.margins.sheet;
+        let gap = mm_to_pt(cascade.margin_mm);
+
+        let avail_w = sheet_w
+            - mm_to_pt(margins.left_mm)
+            - mm_to_pt(margins.right_mm)
+            - gap * (cascade.cols as f32 - 1.0);
+        let avail_h = sheet_h
+            - mm_to_pt(margins.top_mm)
+            - mm_to_pt(margins.bottom_mm)
+            - gap * (cascade.rows as f32 - 1.0);
+
+        Some((avail_w / cascade.cols as f32, avail_h / cascade.rows as f32))
+    }
+
+    /// Calculate the dimensions of a single imposed sheet (cell) in points.
+    ///
+    /// When cascade is active, returns the derived cell size.
+    /// When cascade is inactive, returns the output paper dimensions.
+    pub fn sheet_dimensions_pt(&self) -> (f32, f32) {
+        self.cell_dimensions_pt()
+            .unwrap_or_else(|| self.raw_paper_dimensions_pt())
+    }
+
+    /// Calculate the full output page dimensions in points.
+    ///
+    /// When cascade is active, returns the cascade sheet size (the large output page).
+    /// When cascade is inactive, returns the same as `sheet_dimensions_pt()`.
+    pub fn cascade_sheet_dimensions_pt(&self) -> (f32, f32) {
+        if self.cascade.as_ref().is_some_and(|c| !c.is_trivial()) {
+            self.raw_paper_dimensions_pt()
+        } else {
+            self.sheet_dimensions_pt()
+        }
+    }
+
+    /// Calculate the leaf area bounds (inside sheet margins) in points.
+    ///
+    /// This is relative to the cell (imposed sheet), not the cascade output page.
+    /// When cascade is inactive, the cell *is* the output page.
     pub fn leaf_bounds_pt(&self) -> Rect {
         let (width_pt, height_pt) = self.sheet_dimensions_pt();
-        let margins = &self.margins.sheet;
-        Rect::new(
-            mm_to_pt(margins.left_mm),
-            mm_to_pt(margins.bottom_mm),
-            width_pt - mm_to_pt(margins.left_mm) - mm_to_pt(margins.right_mm),
-            height_pt - mm_to_pt(margins.top_mm) - mm_to_pt(margins.bottom_mm),
-        )
+        if self.cascade.as_ref().is_some_and(|c| !c.is_trivial()) {
+            // In cascade mode, cell has no sheet margins — the cascade sheet has them.
+            // The entire cell area is the leaf area.
+            Rect::new(0.0, 0.0, width_pt, height_pt)
+        } else {
+            let margins = &self.margins.sheet;
+            Rect::new(
+                mm_to_pt(margins.left_mm),
+                mm_to_pt(margins.bottom_mm),
+                width_pt - mm_to_pt(margins.left_mm) - mm_to_pt(margins.right_mm),
+                height_pt - mm_to_pt(margins.top_mm) - mm_to_pt(margins.bottom_mm),
+            )
+        }
     }
 
     /// Validate the options
@@ -182,6 +241,29 @@ impl ImpositionOptions {
             return Err(ImposeError::Config(
                 "Custom paper size must be at least 10mm in each dimension".into(),
             ));
+        }
+
+        // Validate cascade configuration
+        if let Some(cascade) = &self.cascade {
+            if cascade.cols == 0 || cascade.rows == 0 {
+                return Err(ImposeError::Config(
+                    "Cascade columns and rows must be at least 1".into(),
+                ));
+            }
+            if cascade.margin_mm < 0.0 {
+                return Err(ImposeError::Config(
+                    "Cascade margin must not be negative".into(),
+                ));
+            }
+            if !cascade.is_trivial() {
+                let (cell_w, cell_h) = self.sheet_dimensions_pt();
+                if cell_w <= 0.0 || cell_h <= 0.0 {
+                    return Err(ImposeError::Config(
+                        "Cascade grid and margins leave no space for individual imposed sheets"
+                            .into(),
+                    ));
+                }
+            }
         }
 
         // Validate that sheet margins don't consume all space

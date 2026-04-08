@@ -147,7 +147,42 @@ enum Commands {
         /// Show statistics only, don't generate PDF
         #[arg(long)]
         stats_only: bool,
+
+        /// Cascade: number of columns in the grid
+        #[arg(long, default_value = "1")]
+        cascade_cols: usize,
+
+        /// Cascade: number of rows in the grid
+        #[arg(long, default_value = "1")]
+        cascade_rows: usize,
+
+        /// Cascade: margin between cells in mm
+        #[arg(long, default_value = "5.0", value_parser = non_negative_f32)]
+        cascade_margin: f32,
+
+        /// Cascade: add cut lines between cells
+        #[arg(long)]
+        cascade_cut_lines: bool,
+
+        /// Cascade: duplex flip axis
+        #[arg(long, default_value = "long-edge", value_enum)]
+        cascade_flip: FlipArg,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum FlipArg {
+    LongEdge,
+    ShortEdge,
+}
+
+impl From<FlipArg> for pdf_impose::FlipAxis {
+    fn from(arg: FlipArg) -> Self {
+        match arg {
+            FlipArg::LongEdge => Self::LongEdge,
+            FlipArg::ShortEdge => Self::ShortEdge,
+        }
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -356,7 +391,24 @@ async fn main() -> Result<()> {
             leaf_bottom_margin,
             trim_allowance,
             stats_only,
+            cascade_cols,
+            cascade_rows,
+            cascade_margin,
+            cascade_cut_lines,
+            cascade_flip,
         } => {
+            let cascade = if cascade_cols > 1 || cascade_rows > 1 {
+                Some(pdf_impose::CascadeConfig {
+                    cols: cascade_cols,
+                    rows: cascade_rows,
+                    margin_mm: cascade_margin,
+                    cut_lines: cascade_cut_lines,
+                    flip_axis: cascade_flip.into(),
+                })
+            } else {
+                None
+            };
+
             let options = pdf_impose::ImpositionOptions {
                 input_files: input.clone(),
                 binding_type: binding.into(),
@@ -390,6 +442,7 @@ async fn main() -> Result<()> {
                     station_count: sewing_stations,
                     kettle_offset_mm: kettle_offset,
                 },
+                cascade,
                 ..Default::default()
             };
 
@@ -407,6 +460,9 @@ async fn main() -> Result<()> {
             }
             if let Some(sigs) = stats.signatures {
                 println!("  Signatures: {sigs}");
+            }
+            if let Some(cells) = stats.cascade_cells_per_sheet {
+                println!("  Cascade cells per sheet: {cells}");
             }
             for warning in &stats.warnings {
                 eprintln!("  Warning: {warning}");

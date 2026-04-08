@@ -34,7 +34,7 @@ pub fn calculate_statistics(
     if options.binding_type.uses_signatures() {
         Ok(calculate_signature_stats(source_pages, options))
     } else {
-        Ok(calculate_simple_stats(source_pages))
+        Ok(calculate_simple_stats(source_pages, options))
     }
 }
 
@@ -53,40 +53,67 @@ fn calculate_signature_stats(
     let num_signatures = padded_count / pages_per_sig;
     let total_sheets = num_signatures * sheets_per_sig;
 
-    // Output pages (front and back of each sheet)
-    let output_pages = total_sheets * 2;
-
     let warnings = blank_padding_warnings(blank_pages_added, padded_count);
+
+    let cascade_cells_per_sheet = options
+        .cascade
+        .as_ref()
+        .filter(|c| !c.is_trivial())
+        .map(|c| c.cells());
+
+    let (output_sheets, output_pages) = if let Some(cells) = cascade_cells_per_sheet {
+        let cascade_sheets = total_sheets.div_ceil(cells);
+        (cascade_sheets, cascade_sheets * 2)
+    } else {
+        (total_sheets, total_sheets * 2)
+    };
 
     ImpositionStatistics {
         source_pages,
-        output_sheets: total_sheets,
+        output_sheets,
         signatures: Some(num_signatures),
         pages_per_signature: Some(vec![pages_per_sig; num_signatures]),
         output_pages,
         blank_pages_added,
+        cascade_cells_per_sheet,
         warnings,
     }
 }
 
 /// Calculate statistics for simple 2-up binding
-fn calculate_simple_stats(source_pages: usize) -> ImpositionStatistics {
+fn calculate_simple_stats(
+    source_pages: usize,
+    options: &ImpositionOptions,
+) -> ImpositionStatistics {
     // Perfect binding, side stitch, spiral: 2 pages per sheet
     let padded_count = round_up_to_multiple(source_pages, 2);
     let blank_pages_added = padded_count - source_pages;
 
     let total_sheets = padded_count / 2;
-    let output_pages = total_sheets * 2;
+
+    let cascade_cells_per_sheet = options
+        .cascade
+        .as_ref()
+        .filter(|c| !c.is_trivial())
+        .map(|c| c.cells());
+
+    let (output_sheets, output_pages) = if let Some(cells) = cascade_cells_per_sheet {
+        let cascade_sheets = total_sheets.div_ceil(cells);
+        (cascade_sheets, cascade_sheets * 2)
+    } else {
+        (total_sheets, total_sheets * 2)
+    };
 
     let warnings = blank_padding_warnings(blank_pages_added, padded_count);
 
     ImpositionStatistics {
         source_pages,
-        output_sheets: total_sheets,
+        output_sheets,
         signatures: None,
         pages_per_signature: None,
         output_pages,
         blank_pages_added,
+        cascade_cells_per_sheet,
         warnings,
     }
 }

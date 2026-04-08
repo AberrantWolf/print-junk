@@ -439,6 +439,67 @@ impl Default for SewingConfig {
 }
 
 // =============================================================================
+// Cascade Configuration
+// =============================================================================
+
+/// Cascade (step-and-repeat) configuration for tiling multiple imposed sheets
+/// onto a single larger output page.
+///
+/// When cascade is active, the `output_paper_size` on `ImpositionOptions`
+/// represents the large cascade sheet. Each individual imposed layout (cell)
+/// is sized by dividing the available area by the grid dimensions.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
+pub struct CascadeConfig {
+    /// Number of columns in the cascade grid
+    pub cols: usize,
+    /// Number of rows in the cascade grid
+    pub rows: usize,
+    /// Gap between cascade cells in mm
+    pub margin_mm: f32,
+    /// Whether to add cut lines between cascade cells
+    pub cut_lines: bool,
+    /// Flip axis for duplex alignment
+    pub flip_axis: FlipAxis,
+}
+
+impl Default for CascadeConfig {
+    fn default() -> Self {
+        Self {
+            cols: 1,
+            rows: 1,
+            margin_mm: 5.0,
+            cut_lines: false,
+            flip_axis: FlipAxis::default(),
+        }
+    }
+}
+
+impl CascadeConfig {
+    /// Total number of cells in the cascade grid
+    pub fn cells(&self) -> usize {
+        self.cols * self.rows
+    }
+
+    /// Returns true if the cascade is trivial (1×1, equivalent to no cascade)
+    pub fn is_trivial(&self) -> bool {
+        self.cols <= 1 && self.rows <= 1
+    }
+}
+
+/// Flip axis for duplex printing alignment
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum FlipAxis {
+    /// Long-edge flip: columns reverse on back side
+    #[default]
+    LongEdge,
+    /// Short-edge flip: rows reverse on back side
+    ShortEdge,
+}
+
+// =============================================================================
 // Output Splitting
 // =============================================================================
 
@@ -527,6 +588,8 @@ pub struct ImpositionStatistics {
     pub output_pages: usize,
     /// Number of blank pages added for padding
     pub blank_pages_added: usize,
+    /// Number of imposed cells per cascade sheet (if cascade is active)
+    pub cascade_cells_per_sheet: Option<usize>,
     /// Warnings about potential issues
     pub warnings: Vec<Warning>,
 }
