@@ -91,6 +91,9 @@ fn main() {
     println!("cargo:warning=Downloading from {download_url}");
     download_file(&download_url, &temp_file);
 
+    let file_size = fs::metadata(&temp_file).map(|m| m.len()).unwrap_or(0);
+    println!("cargo:warning=Downloaded {file_size} bytes");
+
     println!("cargo:warning=Extracting to {}", pdfium_dir.display());
     extract_tarball(&temp_file, &pdfium_dir);
 
@@ -98,11 +101,26 @@ fn main() {
     let _ = fs::remove_file(&temp_file);
 
     // Verify installation
-    assert!(
-        lib_path.exists(),
-        "PDFium installation failed: {} not found",
-        lib_path.display()
-    );
+    if !lib_path.exists() {
+        // List what was actually extracted for diagnostics
+        fn list_dir(dir: &Path, prefix: &str) {
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    println!("cargo:warning={prefix}{}", path.display());
+                    if path.is_dir() {
+                        list_dir(&path, &format!("{prefix}  "));
+                    }
+                }
+            }
+        }
+        println!("cargo:warning=Contents of {}:", pdfium_dir.display());
+        list_dir(&pdfium_dir, "  ");
+        panic!(
+            "PDFium installation failed: {} not found",
+            lib_path.display()
+        );
+    }
 
     println!(
         "cargo:warning=PDFium installed successfully to {}",
@@ -179,6 +197,7 @@ fn extract_tarball(tarball: &Path, dest: &Path) {
             if let Some(parent) = out_path.parent() {
                 fs::create_dir_all(parent).expect("Failed to create parent directory");
             }
+            println!("cargo:warning=  extracting: {}", path.display());
             entry.unpack(&out_path).unwrap_or_else(|e| {
                 panic!("Failed to extract {}: {e}", path.display());
             });
