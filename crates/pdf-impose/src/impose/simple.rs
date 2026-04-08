@@ -90,8 +90,7 @@ pub(crate) fn impose_simple_binding(
                 1,
                 0,
             )?;
-            let xobject =
-                create_sheet_xobject(&mut output, content, cell_width_pt, cell_height_pt)?;
+            let xobject = create_sheet_xobject(&mut output, content, cell_width_pt, cell_height_pt);
 
             cells.push(CascadeCell {
                 front_xobject: xobject,
@@ -109,7 +108,7 @@ pub(crate) fn impose_simple_binding(
                     cascade_height_pt,
                     &options.margins.sheet,
                     pages_tree_id,
-                )?;
+                );
                 // Simple binding: only emit the front page (single-sided)
                 page_refs.push(Object::Reference(front_id));
                 cells.clear();
@@ -128,7 +127,7 @@ pub(crate) fn impose_simple_binding(
                 cascade_height_pt,
                 &options.margins.sheet,
                 pages_tree_id,
-            )?;
+            );
             page_refs.push(Object::Reference(front_id));
         }
     } else {

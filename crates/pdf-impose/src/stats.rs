@@ -4,7 +4,7 @@
 
 use crate::constants::PAGES_PER_LEAF;
 use crate::options::ImpositionOptions;
-use crate::types::{ImposeError, ImpositionStatistics, Result, Warning};
+use crate::types::{CascadeConfig, ImposeError, ImpositionStatistics, Result, Warning};
 use lopdf::Document;
 
 /// Calculate statistics for the imposition
@@ -59,7 +59,7 @@ fn calculate_signature_stats(
         .cascade
         .as_ref()
         .filter(|c| !c.is_trivial())
-        .map(|c| c.cells());
+        .map(CascadeConfig::cells);
 
     let (output_sheets, output_pages) = if let Some(cells) = cascade_cells_per_sheet {
         let cascade_sheets = total_sheets.div_ceil(cells);
@@ -95,7 +95,7 @@ fn calculate_simple_stats(
         .cascade
         .as_ref()
         .filter(|c| !c.is_trivial())
-        .map(|c| c.cells());
+        .map(CascadeConfig::cells);
 
     let (output_sheets, output_pages) = if let Some(cells) = cascade_cells_per_sheet {
         let cascade_sheets = total_sheets.div_ceil(cells);

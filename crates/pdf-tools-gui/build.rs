@@ -174,10 +174,10 @@ fn generate_icons(workspace_root: &Path, manifest_dir: &Path) {
     let source_mtime = fs::metadata(&source).and_then(|m| m.modified()).ok();
     let png_output = assets_dir.join("icon-256.png");
     let png_mtime = fs::metadata(&png_output).and_then(|m| m.modified()).ok();
-    if let (Some(src), Some(dst)) = (source_mtime, png_mtime) {
-        if dst >= src {
-            return;
-        }
+    if let (Some(src), Some(dst)) = (source_mtime, png_mtime)
+        && dst >= src
+    {
+        return;
     }
 
     println!(
