@@ -93,7 +93,7 @@ jobs:
 
           Copy-Item "target\${Target}\release\pdft.exe" "$Staging\"
           Copy-Item "target\${Target}\release\pdf-tools-gui.exe" "$Staging\"
-          Copy-Item "vendor\pdfium\lib\pdfium.dll" "$Staging\"
+          Copy-Item "vendor\pdfium\bin\pdfium.dll" "$Staging\"
 
           Compress-Archive -Path "$Staging\*" -DestinationPath "${Staging}.zip"
           echo "ARCHIVE=${Staging}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
