@@ -24,7 +24,7 @@ pdfium-render = { version = "0.8", default-features = false, features = ["pdfium
 # GUI
 egui = "0.33"
 eframe = "0.33"
-rfd = "0.15"
+rfd = "0.17"
 
 # CLI
 clap = { version = "4", features = ["derive"] }
