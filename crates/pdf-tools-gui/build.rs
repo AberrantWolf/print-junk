@@ -59,11 +59,12 @@ fn main() {
         .and_then(|p| p.parent())
         .expect("Failed to find workspace root");
     let pdfium_dir = workspace_root.join("vendor").join("pdfium");
-    // Windows archives use bin/ instead of lib/ for the DLL
-    let lib_subdir = if platform == "win" { "bin" } else { "lib" };
-    let lib_dir = pdfium_dir.join(lib_subdir);
     let include_dir = pdfium_dir.join("include");
-    let lib_path = lib_dir.join(lib_name);
+    // Windows archives put the DLL in bin/ and the import lib (.dll.lib) in lib/
+    // On Unix, both the shared library and link target are in lib/
+    let dll_dir = pdfium_dir.join(if platform == "win" { "bin" } else { "lib" });
+    let link_dir = pdfium_dir.join("lib");
+    let lib_path = dll_dir.join(lib_name);
 
     // Check if already downloaded
     if lib_path.exists() {
@@ -72,14 +73,15 @@ fn main() {
             lib_path.display()
         );
         fix_library_install_name(&lib_path, platform);
-        configure_linking(&lib_dir, &include_dir);
+        configure_linking(&link_dir, &include_dir);
         return;
     }
 
     println!("cargo:warning=Downloading PDFium {pdfium_version} for {platform}-{arch}");
 
     // Create directories
-    fs::create_dir_all(&lib_dir).expect("Failed to create lib directory");
+    fs::create_dir_all(&dll_dir).expect("Failed to create dll directory");
+    fs::create_dir_all(&link_dir).expect("Failed to create lib directory");
     fs::create_dir_all(&include_dir).expect("Failed to create include directory");
 
     // Download URL
@@ -132,7 +134,7 @@ fn main() {
     // Fix install name on macOS
     fix_library_install_name(&lib_path, platform);
 
-    configure_linking(&lib_dir, &include_dir);
+    configure_linking(&link_dir, &include_dir);
 }
 
 fn configure_linking(lib_dir: &Path, include_dir: &Path) {
@@ -140,7 +142,12 @@ fn configure_linking(lib_dir: &Path, include_dir: &Path) {
 
     // Tell cargo to link against pdfium
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-lib=dylib=pdfium");
+    if target.contains("windows") {
+        // Windows import lib is named pdfium.dll.lib
+        println!("cargo:rustc-link-lib=dylib=pdfium.dll");
+    } else {
+        println!("cargo:rustc-link-lib=dylib=pdfium");
+    }
 
     // Set rpath so the binary can find the library at runtime
     if target.contains("apple") {
