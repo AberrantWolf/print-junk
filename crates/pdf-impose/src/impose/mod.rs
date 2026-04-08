@@ -6,6 +6,7 @@
 //! 3. Place pages with margins and alignment
 //! 4. Render to output PDF with printer's marks
 
+mod cascade;
 mod flyleaves;
 mod io;
 mod sheet;

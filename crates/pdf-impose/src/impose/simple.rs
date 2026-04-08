@@ -3,7 +3,8 @@
 //! For non-signature bindings, pages are simply placed 2-up (one spread per sheet).
 //! This uses the folio spread layout.
 
-use super::sheet::render_sheet_spreads;
+use super::cascade::{CascadeCell, render_cascade_page};
+use super::sheet::{create_sheet_xobject, generate_sheet_content, render_sheet_spreads};
 use super::signature::finalize_document;
 use crate::layout::{
     SheetSide, Spread, SpreadCutEdges, SpreadSheetLayout, calculate_spread_positions,
@@ -31,8 +32,8 @@ pub(crate) fn impose_simple_binding(
         })
         .collect();
 
-    // Calculate output dimensions and leaf area
-    let (output_width_pt, output_height_pt) = options.sheet_dimensions_pt();
+    // Calculate cell dimensions and leaf area
+    let (cell_width_pt, cell_height_pt) = options.sheet_dimensions_pt();
     let leaf_bounds = options.leaf_bounds_pt();
 
     // Simple 2-up uses folio layout (1 spread per sheet side)
@@ -50,44 +51,123 @@ pub(crate) fn impose_simple_binding(
     // Pad to even number of pages
     let padded_count = total_pages.div_ceil(2) * 2;
 
-    // Process pages in pairs (one spread per output page)
-    for chunk_start in (0..padded_count).step_by(2) {
-        let left_page = if chunk_start < total_pages {
-            Some(chunk_start)
-        } else {
-            None
-        };
-        let right_page = if chunk_start + 1 < total_pages {
-            Some(chunk_start + 1)
-        } else {
-            None
-        };
+    let cascade = options.cascade.as_ref().filter(|c| !c.is_trivial());
 
-        // Create spread with page assignments
-        let spread = Spread::new(left_page, right_page);
+    if let Some(cascade) = cascade {
+        // Cascade path: collect XObjects, batch into cascade pages.
+        // Simple binding has no front/back — we use the same XObject for both sides
+        // of CascadeCell so cascade assembly works uniformly.
+        let (cascade_width_pt, cascade_height_pt) = options.cascade_sheet_dimensions_pt();
+        let mut cells: Vec<CascadeCell> = Vec::new();
 
-        // Clone the spread position and assign the spread
-        let mut spread_pos = spread_positions[0].clone();
-        spread_pos.spread = spread;
+        for chunk_start in (0..padded_count).step_by(2) {
+            let left_page = if chunk_start < total_pages {
+                Some(chunk_start)
+            } else {
+                None
+            };
+            let right_page = if chunk_start + 1 < total_pages {
+                Some(chunk_start + 1)
+            } else {
+                None
+            };
 
-        let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
+            let spread = Spread::new(left_page, right_page);
+            let mut spread_pos = spread_positions[0].clone();
+            spread_pos.spread = spread;
 
-        let page_id = render_sheet_spreads(
-            &mut output,
-            source,
-            page_ids,
-            &layout,
-            &cut_edges,
-            &source_dimensions,
-            output_width_pt,
-            output_height_pt,
-            pages_tree_id,
-            options,
-            0,
-            1,
-            0,
-        )?;
-        page_refs.push(Object::Reference(page_id));
+            let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
+
+            let content = generate_sheet_content(
+                &mut output,
+                source,
+                page_ids,
+                &layout,
+                &cut_edges,
+                &source_dimensions,
+                options,
+                0,
+                1,
+                0,
+            )?;
+            let xobject =
+                create_sheet_xobject(&mut output, content, cell_width_pt, cell_height_pt)?;
+
+            cells.push(CascadeCell {
+                front_xobject: xobject,
+                back_xobject: xobject, // simple binding is single-sided
+            });
+
+            if cells.len() == cascade.cells() {
+                let (front_id, _back_id) = render_cascade_page(
+                    &mut output,
+                    &cells,
+                    cascade,
+                    cell_width_pt,
+                    cell_height_pt,
+                    cascade_width_pt,
+                    cascade_height_pt,
+                    &options.margins.sheet,
+                    pages_tree_id,
+                )?;
+                // Simple binding: only emit the front page (single-sided)
+                page_refs.push(Object::Reference(front_id));
+                cells.clear();
+            }
+        }
+
+        // Flush remaining partial batch
+        if !cells.is_empty() {
+            let (front_id, _back_id) = render_cascade_page(
+                &mut output,
+                &cells,
+                cascade,
+                cell_width_pt,
+                cell_height_pt,
+                cascade_width_pt,
+                cascade_height_pt,
+                &options.margins.sheet,
+                pages_tree_id,
+            )?;
+            page_refs.push(Object::Reference(front_id));
+        }
+    } else {
+        // Normal path: each spread becomes its own output page
+        for chunk_start in (0..padded_count).step_by(2) {
+            let left_page = if chunk_start < total_pages {
+                Some(chunk_start)
+            } else {
+                None
+            };
+            let right_page = if chunk_start + 1 < total_pages {
+                Some(chunk_start + 1)
+            } else {
+                None
+            };
+
+            let spread = Spread::new(left_page, right_page);
+            let mut spread_pos = spread_positions[0].clone();
+            spread_pos.spread = spread;
+
+            let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
+
+            let page_id = render_sheet_spreads(
+                &mut output,
+                source,
+                page_ids,
+                &layout,
+                &cut_edges,
+                &source_dimensions,
+                cell_width_pt,
+                cell_height_pt,
+                pages_tree_id,
+                options,
+                0,
+                1,
+                0,
+            )?;
+            page_refs.push(Object::Reference(page_id));
+        }
     }
 
     // Finalize document

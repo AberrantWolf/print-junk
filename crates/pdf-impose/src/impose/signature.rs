@@ -5,7 +5,8 @@
 //! - Quarto: 2 spreads per side (8 pages per signature)
 //! - Octavo: 4 spreads per side (16 pages per signature)
 
-use super::sheet::render_sheet_spreads;
+use super::cascade::{CascadeCell, render_cascade_page};
+use super::sheet::{create_sheet_xobject, generate_sheet_content, render_sheet_spreads};
 use crate::layout::{
     SheetSide, SpreadSheetLayout, apply_page_assignments, assign_pages_to_spreads,
     calculate_cut_edges, calculate_signature_count, calculate_spread_positions,
@@ -33,8 +34,8 @@ pub(crate) fn impose_signature_binding(
         })
         .collect();
 
-    // Calculate output dimensions and leaf bounds
-    let (output_width_pt, output_height_pt) = options.sheet_dimensions_pt();
+    // Cell dimensions (= sheet dimensions; cascade derives these from the larger sheet)
+    let (cell_width_pt, cell_height_pt) = options.sheet_dimensions_pt();
     let leaf_bounds = options.leaf_bounds_pt();
 
     // Get cut edges for the arrangement (same for all sheets)
@@ -52,67 +53,174 @@ pub(crate) fn impose_signature_binding(
     // Calculate number of signatures needed
     let num_signatures = calculate_signature_count(total_pages, pages_per_sig);
 
-    // Process each signature
-    for sig_num in 0..num_signatures {
-        let sig_start = sig_num * pages_per_sig;
+    let cascade = options.cascade.as_ref().filter(|c| !c.is_trivial());
 
-        // Get page assignments for each sheet in this signature
-        let sheet_assignments = assign_pages_to_spreads(
-            arrangement,
-            options.sheets_per_signature,
-            sig_start,
-            total_pages,
-        );
+    if let Some(cascade) = cascade {
+        // Cascade path: collect cells, then batch into cascade pages
+        let (cascade_width_pt, cascade_height_pt) = options.cascade_sheet_dimensions_pt();
+        let mut cells: Vec<CascadeCell> = Vec::new();
 
-        // Render each sheet (front + back)
-        for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
-            // Front side
-            let front_spreads = apply_page_assignments(
-                &spread_positions,
-                sheet_assignment.for_side(SheetSide::Front),
+        for sig_num in 0..num_signatures {
+            let sig_start = sig_num * pages_per_sig;
+            let sheet_assignments = assign_pages_to_spreads(
+                arrangement,
+                options.sheets_per_signature,
+                sig_start,
+                total_pages,
             );
-            let front_layout = SpreadSheetLayout::new(SheetSide::Front, front_spreads, leaf_bounds);
 
-            let front_page_id = render_sheet_spreads(
+            for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
+                // Front
+                let front_spreads = apply_page_assignments(
+                    &spread_positions,
+                    sheet_assignment.for_side(SheetSide::Front),
+                );
+                let front_layout =
+                    SpreadSheetLayout::new(SheetSide::Front, front_spreads, leaf_bounds);
+                let front_content = generate_sheet_content(
+                    &mut output,
+                    source,
+                    page_ids,
+                    &front_layout,
+                    &cut_edges,
+                    &source_dimensions,
+                    options,
+                    sig_num,
+                    num_signatures,
+                    sheet_idx,
+                )?;
+                let front_xobject = create_sheet_xobject(
+                    &mut output,
+                    front_content,
+                    cell_width_pt,
+                    cell_height_pt,
+                )?;
+
+                // Back
+                let back_spreads = apply_page_assignments(
+                    &spread_positions,
+                    sheet_assignment.for_side(SheetSide::Back),
+                );
+                let back_layout =
+                    SpreadSheetLayout::new(SheetSide::Back, back_spreads, leaf_bounds);
+                let back_content = generate_sheet_content(
+                    &mut output,
+                    source,
+                    page_ids,
+                    &back_layout,
+                    &cut_edges,
+                    &source_dimensions,
+                    options,
+                    sig_num,
+                    num_signatures,
+                    sheet_idx,
+                )?;
+                let back_xobject =
+                    create_sheet_xobject(&mut output, back_content, cell_width_pt, cell_height_pt)?;
+
+                cells.push(CascadeCell {
+                    front_xobject,
+                    back_xobject,
+                });
+
+                // When batch is full, render cascade page
+                if cells.len() == cascade.cells() {
+                    let (front_id, back_id) = render_cascade_page(
+                        &mut output,
+                        &cells,
+                        cascade,
+                        cell_width_pt,
+                        cell_height_pt,
+                        cascade_width_pt,
+                        cascade_height_pt,
+                        &options.margins.sheet,
+                        pages_tree_id,
+                    )?;
+                    page_refs.push(Object::Reference(front_id));
+                    page_refs.push(Object::Reference(back_id));
+                    cells.clear();
+                }
+            }
+        }
+
+        // Flush remaining partial batch
+        if !cells.is_empty() {
+            let (front_id, back_id) = render_cascade_page(
                 &mut output,
-                source,
-                page_ids,
-                &front_layout,
-                &cut_edges,
-                &source_dimensions,
-                output_width_pt,
-                output_height_pt,
+                &cells,
+                cascade,
+                cell_width_pt,
+                cell_height_pt,
+                cascade_width_pt,
+                cascade_height_pt,
+                &options.margins.sheet,
                 pages_tree_id,
-                options,
-                sig_num,
-                num_signatures,
-                sheet_idx,
             )?;
-            page_refs.push(Object::Reference(front_page_id));
-
-            // Back side
-            let back_spreads = apply_page_assignments(
-                &spread_positions,
-                sheet_assignment.for_side(SheetSide::Back),
+            page_refs.push(Object::Reference(front_id));
+            page_refs.push(Object::Reference(back_id));
+        }
+    } else {
+        // Normal path: each sheet becomes its own output page
+        for sig_num in 0..num_signatures {
+            let sig_start = sig_num * pages_per_sig;
+            let sheet_assignments = assign_pages_to_spreads(
+                arrangement,
+                options.sheets_per_signature,
+                sig_start,
+                total_pages,
             );
-            let back_layout = SpreadSheetLayout::new(SheetSide::Back, back_spreads, leaf_bounds);
 
-            let back_page_id = render_sheet_spreads(
-                &mut output,
-                source,
-                page_ids,
-                &back_layout,
-                &cut_edges,
-                &source_dimensions,
-                output_width_pt,
-                output_height_pt,
-                pages_tree_id,
-                options,
-                sig_num,
-                num_signatures,
-                sheet_idx,
-            )?;
-            page_refs.push(Object::Reference(back_page_id));
+            for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
+                // Front side
+                let front_spreads = apply_page_assignments(
+                    &spread_positions,
+                    sheet_assignment.for_side(SheetSide::Front),
+                );
+                let front_layout =
+                    SpreadSheetLayout::new(SheetSide::Front, front_spreads, leaf_bounds);
+
+                let front_page_id = render_sheet_spreads(
+                    &mut output,
+                    source,
+                    page_ids,
+                    &front_layout,
+                    &cut_edges,
+                    &source_dimensions,
+                    cell_width_pt,
+                    cell_height_pt,
+                    pages_tree_id,
+                    options,
+                    sig_num,
+                    num_signatures,
+                    sheet_idx,
+                )?;
+                page_refs.push(Object::Reference(front_page_id));
+
+                // Back side
+                let back_spreads = apply_page_assignments(
+                    &spread_positions,
+                    sheet_assignment.for_side(SheetSide::Back),
+                );
+                let back_layout =
+                    SpreadSheetLayout::new(SheetSide::Back, back_spreads, leaf_bounds);
+
+                let back_page_id = render_sheet_spreads(
+                    &mut output,
+                    source,
+                    page_ids,
+                    &back_layout,
+                    &cut_edges,
+                    &source_dimensions,
+                    cell_width_pt,
+                    cell_height_pt,
+                    pages_tree_id,
+                    options,
+                    sig_num,
+                    num_signatures,
+                    sheet_idx,
+                )?;
+                page_refs.push(Object::Reference(back_page_id));
+            }
         }
     }
 
