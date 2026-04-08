@@ -89,12 +89,8 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                 )?;
-                let front_xobject = create_sheet_xobject(
-                    &mut output,
-                    front_content,
-                    cell_width_pt,
-                    cell_height_pt,
-                )?;
+                let front_xobject =
+                    create_sheet_xobject(&mut output, front_content, cell_width_pt, cell_height_pt);
 
                 // Back
                 let back_spreads = apply_page_assignments(
@@ -116,7 +112,7 @@ pub(crate) fn impose_signature_binding(
                     sheet_idx,
                 )?;
                 let back_xobject =
-                    create_sheet_xobject(&mut output, back_content, cell_width_pt, cell_height_pt)?;
+                    create_sheet_xobject(&mut output, back_content, cell_width_pt, cell_height_pt);
 
                 cells.push(CascadeCell {
                     front_xobject,
@@ -135,7 +131,7 @@ pub(crate) fn impose_signature_binding(
                         cascade_height_pt,
                         &options.margins.sheet,
                         pages_tree_id,
-                    )?;
+                    );
                     page_refs.push(Object::Reference(front_id));
                     page_refs.push(Object::Reference(back_id));
                     cells.clear();
@@ -155,7 +151,7 @@ pub(crate) fn impose_signature_binding(
                 cascade_height_pt,
                 &options.margins.sheet,
                 pages_tree_id,
-            )?;
+            );
             page_refs.push(Object::Reference(front_id));
             page_refs.push(Object::Reference(back_id));
         }

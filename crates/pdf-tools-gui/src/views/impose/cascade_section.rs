@@ -70,7 +70,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
                 .options
                 .cascade
                 .as_ref()
-                .is_some_and(|c| c.is_trivial())
+                .is_some_and(CascadeConfig::is_trivial)
             {
                 state.options.cascade = None;
             }
@@ -81,13 +81,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
                 .cascade
                 .as_ref()
                 .is_some_and(|c| !c.is_trivial())
+                && let Some((w, h)) = state.options.cell_dimensions_pt()
             {
-                if let Some((w, h)) = state.options.cell_dimensions_pt() {
-                    let w_mm = w / pdf_impose::constants::POINTS_PER_MM;
-                    let h_mm = h / pdf_impose::constants::POINTS_PER_MM;
-                    ui.add_space(5.0);
-                    ui.label(format!("Cell size: {w_mm:.1} × {h_mm:.1} mm"));
-                }
+                let w_mm = w / pdf_impose::constants::POINTS_PER_MM;
+                let h_mm = h / pdf_impose::constants::POINTS_PER_MM;
+                ui.add_space(5.0);
+                ui.label(format!("Cell size: {w_mm:.1} × {h_mm:.1} mm"));
             }
 
             if changed {
