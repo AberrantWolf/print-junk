@@ -22,18 +22,22 @@ jobs:
             runner: ubuntu-latest
             archive_ext: tar.gz
             lib_name: libpdfium.so
+            display_name: linux-x64
           - target: x86_64-apple-darwin
             runner: macos-latest
             archive_ext: tar.gz
             lib_name: libpdfium.dylib
+            display_name: macos-x64
           - target: aarch64-apple-darwin
             runner: macos-latest
             archive_ext: tar.gz
             lib_name: libpdfium.dylib
+            display_name: macos-arm64
           - target: x86_64-pc-windows-msvc
             runner: windows-latest
             archive_ext: zip
             lib_name: pdfium.dll
+            display_name: windows-x64
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -64,10 +68,10 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          TARGET="${{ matrix.target }}"
-          STAGING="pdf-tools-${VERSION}-${TARGET}"
+          STAGING="pdf-tools-${VERSION}-${{ matrix.display_name }}"
           mkdir -p "$STAGING"
 
+          TARGET="${{ matrix.target }}"
           cp "target/${TARGET}/release/pdft" "$STAGING/"
           cp "target/${TARGET}/release/pdf-tools-gui" "$STAGING/"
           cp "vendor/pdfium/lib/${{ matrix.lib_name }}" "$STAGING/"
@@ -87,10 +91,10 @@ jobs:
         shell: pwsh
         run: |
           $Version = "$env:GITHUB_REF_NAME"
-          $Target = "${{ matrix.target }}"
-          $Staging = "pdf-tools-${Version}-${Target}"
+          $Staging = "pdf-tools-${Version}-${{ matrix.display_name }}"
           New-Item -ItemType Directory -Path $Staging
 
+          $Target = "${{ matrix.target }}"
           Copy-Item "target\${Target}\release\pdft.exe" "$Staging\"
           Copy-Item "target\${Target}\release\pdf-tools-gui.exe" "$Staging\"
           Copy-Item "vendor\pdfium\bin\pdfium.dll" "$Staging\"
@@ -101,7 +105,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: archive-${{ matrix.target }}
+          name: archive-${{ matrix.display_name }}
           path: ${{ env.ARCHIVE }}
 
   release:
