@@ -3,6 +3,19 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn main() {
+    // Embed icon and version info in Windows executables
+    #[cfg(target_os = "windows")]
+    {
+        let mut res = winresource::WindowsResource::new();
+        res.set_icon("assets/icon.ico");
+        res.set("ProductName", "PDF Tools");
+        res.set(
+            "FileDescription",
+            "PDF Tools - Imposition and processing for printers",
+        );
+        res.compile().expect("Failed to compile Windows resources");
+    }
+
     // Only run for non-WASM targets with pdf-viewer feature
     let target = env::var("TARGET").unwrap();
     if target.contains("wasm32") {

@@ -36,15 +36,31 @@ fn setup_fonts(ctx: &egui::Context) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn load_icon() -> egui::IconData {
+    let icon_bytes = include_bytes!("../assets/icon-256.png");
+    let img = image::load_from_memory(icon_bytes)
+        .expect("Failed to load app icon")
+        .into_rgba8();
+    let (width, height) = img.dimensions();
+    egui::IconData {
+        rgba: img.into_raw(),
+        width,
+        height,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     // Initialize tokio runtime for desktop
     let rt = tokio::runtime::Runtime::new().unwrap();
     let handle = rt.handle().clone();
 
+    let icon = load_icon();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1024.0, 768.0])
-            .with_title("PDF Tools"),
+            .with_title("PDF Tools")
+            .with_icon(icon),
         ..Default::default()
     };
 
