@@ -59,7 +59,9 @@ fn main() {
         .and_then(|p| p.parent())
         .expect("Failed to find workspace root");
     let pdfium_dir = workspace_root.join("vendor").join("pdfium");
-    let lib_dir = pdfium_dir.join("lib");
+    // Windows archives use bin/ instead of lib/ for the DLL
+    let lib_subdir = if platform == "win" { "bin" } else { "lib" };
+    let lib_dir = pdfium_dir.join(lib_subdir);
     let include_dir = pdfium_dir.join("include");
     let lib_path = lib_dir.join(lib_name);
 
