@@ -101,7 +101,8 @@ pub async fn handle_generate_preview(
     let total_signatures = stats.and_then(|s| s.signatures).unwrap_or(0);
 
     // Generate preview (smart default limits output to ~16 sheets)
-    let mut preview_result = match generate_preview(documents, &options, None).await {
+    let preview_docs = documents.to_vec();
+    let mut preview_result = match generate_preview(preview_docs, &options, None).await {
         Ok(r) => r,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
@@ -168,7 +169,7 @@ pub async fn handle_generate(
     });
 
     // Impose
-    let imposed = match impose(&documents, &options).await {
+    let imposed = match impose(documents, &options).await {
         Ok(doc) => doc,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {

@@ -58,7 +58,7 @@ async fn test_generate_preview_basic() {
     options.binding_type = BindingType::Signature;
     options.page_arrangement = PageArrangement::Quarto;
 
-    let preview = generate_preview(&[doc], &options, Some(2)).await;
+    let preview = generate_preview(vec![doc], &options, Some(2)).await;
     assert!(preview.is_ok());
 
     let output = preview.unwrap();
@@ -73,7 +73,7 @@ async fn test_generate_preview_no_pages() {
     let mut options = ImpositionOptions::default();
     options.input_files.push(PathBuf::from("test.pdf"));
 
-    let preview = generate_preview(&[doc], &options, Some(1)).await;
+    let preview = generate_preview(vec![doc], &options, Some(1)).await;
     assert!(preview.is_err());
 }
 
@@ -84,7 +84,7 @@ async fn test_generate_preview_different_sheet_counts() {
     options.input_files.push(PathBuf::from("test.pdf"));
 
     for max_sigs in 1..=5 {
-        let preview = generate_preview(std::slice::from_ref(&doc), &options, Some(max_sigs)).await;
+        let preview = generate_preview(vec![doc.clone()], &options, Some(max_sigs)).await;
         assert!(preview.is_ok(), "Failed with max_sigs: {max_sigs}");
 
         let output = preview.unwrap();
@@ -104,7 +104,7 @@ async fn test_generate_preview_perfect_binding() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.binding_type = BindingType::PerfectBinding;
 
-    let preview = generate_preview(&[doc], &options, Some(3)).await;
+    let preview = generate_preview(vec![doc], &options, Some(3)).await;
     assert!(preview.is_ok());
 
     let output = preview.unwrap();
@@ -120,7 +120,7 @@ async fn test_generate_preview_octavo() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.page_arrangement = PageArrangement::Octavo;
 
-    let preview = generate_preview(&[doc], &options, Some(2)).await;
+    let preview = generate_preview(vec![doc], &options, Some(2)).await;
     assert!(preview.is_ok());
 
     let output = preview.unwrap();

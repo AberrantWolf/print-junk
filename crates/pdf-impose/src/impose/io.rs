@@ -1,6 +1,6 @@
 //! Document I/O operations for imposition
 
-use crate::types::{ImposeError, Result};
+use crate::types::Result;
 use lopdf::Document;
 use std::path::Path;
 
@@ -12,13 +12,24 @@ pub async fn load_pdf(path: impl AsRef<Path>) -> Result<Document> {
     Ok(doc)
 }
 
-/// Load multiple PDF documents
+/// Load multiple PDF documents concurrently
 pub async fn load_multiple_pdfs(paths: &[impl AsRef<Path>]) -> Result<Vec<Document>> {
-    let mut documents = Vec::new();
-    for path in paths {
-        documents.push(load_pdf(path).await?);
+    let mut set = tokio::task::JoinSet::new();
+    for (i, path) in paths.iter().enumerate() {
+        let path = path.as_ref().to_owned();
+        set.spawn(async move {
+            let bytes = tokio::fs::read(&path).await?;
+            let doc = tokio::task::spawn_blocking(move || Document::load_mem(&bytes)).await??;
+            Ok::<_, crate::types::ImposeError>((i, doc))
+        });
     }
-    Ok(documents)
+    let mut results: Vec<(usize, Document)> = Vec::with_capacity(paths.len());
+    while let Some(result) = set.join_next().await {
+        results.push(result??);
+    }
+    // Restore original order
+    results.sort_by_key(|(i, _)| *i);
+    Ok(results.into_iter().map(|(_, doc)| doc).collect())
 }
 
 /// Save the imposed document
@@ -27,24 +38,9 @@ pub async fn save_pdf(mut doc: Document, path: impl AsRef<Path>) -> Result<()> {
     let bytes = tokio::task::spawn_blocking(move || {
         let mut writer = Vec::new();
         doc.save_to(&mut writer)?;
-        Ok::<_, ImposeError>(writer)
+        Ok::<_, crate::types::ImposeError>(writer)
     })
     .await??;
     tokio::fs::write(&path, bytes).await?;
     Ok(())
-}
-
-/// Merge multiple documents into one
-pub(crate) fn merge_documents(documents: &[Document]) -> Result<Document> {
-    if documents.is_empty() {
-        return Err(ImposeError::NoPages);
-    }
-
-    if documents.len() == 1 {
-        return Ok(documents[0].clone());
-    }
-
-    Err(ImposeError::Config(
-        "Multiple input documents not yet supported; concatenate PDFs first".to_string(),
-    ))
 }
