@@ -4,33 +4,24 @@
 //! This uses the folio spread layout.
 
 use super::cascade::{CascadeCell, render_cascade_page};
+use super::page_source::{PageSource, XObjectCache};
 use super::sheet::{create_sheet_xobject, generate_sheet_content, render_sheet_spreads};
 use super::signature::finalize_document;
 use crate::layout::{
     SheetSide, Spread, SpreadCutEdges, SpreadSheetLayout, calculate_spread_positions,
 };
 use crate::options::ImpositionOptions;
-use crate::render::get_page_dimensions;
 use crate::types::{PageArrangement, Result};
-use lopdf::{Document, Object, ObjectId};
+use lopdf::{Document, Object};
 
 /// Impose using simple 2-up binding (perfect binding, side stitch, spiral)
 ///
 /// Each output page has 2 source pages side by side (one spread).
 pub(crate) fn impose_simple_binding(
-    source: &Document,
-    page_ids: &[ObjectId],
+    page_source: &PageSource,
     options: &ImpositionOptions,
 ) -> Result<Document> {
-    let total_pages = page_ids.len();
-
-    // Get source page dimensions
-    let source_dimensions: Vec<(f32, f32)> = page_ids
-        .iter()
-        .map(|&id| {
-            get_page_dimensions(source, id).unwrap_or(crate::constants::DEFAULT_PAGE_DIMENSIONS)
-        })
-        .collect();
+    let total_pages = page_source.len();
 
     // Calculate cell dimensions and leaf area
     let (cell_width_pt, cell_height_pt) = options.sheet_dimensions_pt();
@@ -47,6 +38,9 @@ pub(crate) fn impose_simple_binding(
     let mut output = Document::with_version("1.7");
     let pages_tree_id = output.new_object_id();
     let mut page_refs = Vec::new();
+
+    // Shared XObject cache across all sheets
+    let mut xobject_cache = XObjectCache::new();
 
     // Pad to even number of pages
     let padded_count = total_pages.div_ceil(2) * 2;
@@ -80,15 +74,14 @@ pub(crate) fn impose_simple_binding(
 
             let content = generate_sheet_content(
                 &mut output,
-                source,
-                page_ids,
+                page_source,
                 &layout,
                 &cut_edges,
-                &source_dimensions,
                 options,
                 0,
                 1,
                 0,
+                &mut xobject_cache,
             )?;
             let xobject = create_sheet_xobject(&mut output, content, cell_width_pt, cell_height_pt);
 
@@ -152,11 +145,9 @@ pub(crate) fn impose_simple_binding(
 
             let page_id = render_sheet_spreads(
                 &mut output,
-                source,
-                page_ids,
+                page_source,
                 &layout,
                 &cut_edges,
-                &source_dimensions,
                 cell_width_pt,
                 cell_height_pt,
                 pages_tree_id,
@@ -164,6 +155,7 @@ pub(crate) fn impose_simple_binding(
                 0,
                 1,
                 0,
+                &mut xobject_cache,
             )?;
             page_refs.push(Object::Reference(page_id));
         }

@@ -130,46 +130,6 @@ impl MarksConfig {
             trim_allowance_pt,
         }
     }
-
-    /// Build a simple marks config for the standalone render API (no spread data).
-    ///
-    /// Uses uniform grid geometry — only correct when `trim_allowance` is 0.
-    pub fn simple(cols: usize, rows: usize, leaf_bounds: &Rect) -> Self {
-        let cell_width = leaf_bounds.width / cols.max(1) as f32;
-        let cell_height = leaf_bounds.height / rows.max(1) as f32;
-
-        let mut spine_positions = Vec::with_capacity(cols);
-        for col in 0..cols {
-            let spine_x = leaf_bounds.x + (col as f32 + 0.5) * cell_width;
-            let mut row_spans = Vec::with_capacity(rows);
-            for row in 0..rows {
-                let bottom = leaf_bounds.y + row as f32 * cell_height;
-                row_spans.push((bottom, bottom + cell_height));
-            }
-            spine_positions.push(SpinePosition {
-                x: spine_x,
-                rows: row_spans,
-            });
-        }
-
-        let vertical_boundary_xs = (0..cols.saturating_sub(1))
-            .map(|col| leaf_bounds.x + (col + 1) as f32 * cell_width)
-            .collect();
-        let horizontal_boundary_ys = (0..rows.saturating_sub(1))
-            .map(|row| leaf_bounds.y + (row + 1) as f32 * cell_height)
-            .collect();
-
-        Self {
-            spine_positions,
-            vertical_boundary_xs,
-            horizontal_boundary_ys,
-            leaf_left: leaf_bounds.x,
-            leaf_bottom: leaf_bounds.y,
-            leaf_right: leaf_bounds.right(),
-            leaf_top: leaf_bounds.top(),
-            trim_allowance_pt: 0.0,
-        }
-    }
 }
 
 /// Per-sheet rendering context for marks that depend on binding/signature info.

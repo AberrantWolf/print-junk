@@ -6,33 +6,24 @@
 //! - Octavo: 4 spreads per side (16 pages per signature)
 
 use super::cascade::{CascadeCell, render_cascade_page};
+use super::page_source::{PageSource, XObjectCache};
 use super::sheet::{create_sheet_xobject, generate_sheet_content, render_sheet_spreads};
 use crate::layout::{
     SheetSide, SpreadSheetLayout, apply_page_assignments, assign_pages_to_spreads,
     calculate_cut_edges, calculate_signature_count, calculate_spread_positions,
 };
 use crate::options::ImpositionOptions;
-use crate::render::get_page_dimensions;
 use crate::types::Result;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 
 /// Impose using signature binding (folded sheets)
 pub(crate) fn impose_signature_binding(
-    source: &Document,
-    page_ids: &[ObjectId],
+    page_source: &PageSource,
     options: &ImpositionOptions,
 ) -> Result<Document> {
-    let total_pages = page_ids.len();
+    let total_pages = page_source.len();
     let arrangement = options.page_arrangement;
     let pages_per_sig = options.pages_per_signature();
-
-    // Get source page dimensions
-    let source_dimensions: Vec<(f32, f32)> = page_ids
-        .iter()
-        .map(|&id| {
-            get_page_dimensions(source, id).unwrap_or(crate::constants::DEFAULT_PAGE_DIMENSIONS)
-        })
-        .collect();
 
     // Cell dimensions (= sheet dimensions; cascade derives these from the larger sheet)
     let (cell_width_pt, cell_height_pt) = options.sheet_dimensions_pt();
@@ -49,6 +40,9 @@ pub(crate) fn impose_signature_binding(
     let mut output = Document::with_version("1.7");
     let pages_tree_id = output.new_object_id();
     let mut page_refs = Vec::new();
+
+    // Shared XObject cache across all sheets
+    let mut xobject_cache = XObjectCache::new();
 
     // Calculate number of signatures needed
     let num_signatures = calculate_signature_count(total_pages, pages_per_sig);
@@ -79,15 +73,14 @@ pub(crate) fn impose_signature_binding(
                     SpreadSheetLayout::new(SheetSide::Front, front_spreads, leaf_bounds);
                 let front_content = generate_sheet_content(
                     &mut output,
-                    source,
-                    page_ids,
+                    page_source,
                     &front_layout,
                     &cut_edges,
-                    &source_dimensions,
                     options,
                     sig_num,
                     num_signatures,
                     sheet_idx,
+                    &mut xobject_cache,
                 )?;
                 let front_xobject =
                     create_sheet_xobject(&mut output, front_content, cell_width_pt, cell_height_pt);
@@ -101,15 +94,14 @@ pub(crate) fn impose_signature_binding(
                     SpreadSheetLayout::new(SheetSide::Back, back_spreads, leaf_bounds);
                 let back_content = generate_sheet_content(
                     &mut output,
-                    source,
-                    page_ids,
+                    page_source,
                     &back_layout,
                     &cut_edges,
-                    &source_dimensions,
                     options,
                     sig_num,
                     num_signatures,
                     sheet_idx,
+                    &mut xobject_cache,
                 )?;
                 let back_xobject =
                     create_sheet_xobject(&mut output, back_content, cell_width_pt, cell_height_pt);
@@ -177,11 +169,9 @@ pub(crate) fn impose_signature_binding(
 
                 let front_page_id = render_sheet_spreads(
                     &mut output,
-                    source,
-                    page_ids,
+                    page_source,
                     &front_layout,
                     &cut_edges,
-                    &source_dimensions,
                     cell_width_pt,
                     cell_height_pt,
                     pages_tree_id,
@@ -189,6 +179,7 @@ pub(crate) fn impose_signature_binding(
                     sig_num,
                     num_signatures,
                     sheet_idx,
+                    &mut xobject_cache,
                 )?;
                 page_refs.push(Object::Reference(front_page_id));
 
@@ -202,11 +193,9 @@ pub(crate) fn impose_signature_binding(
 
                 let back_page_id = render_sheet_spreads(
                     &mut output,
-                    source,
-                    page_ids,
+                    page_source,
                     &back_layout,
                     &cut_edges,
-                    &source_dimensions,
                     cell_width_pt,
                     cell_height_pt,
                     pages_tree_id,
@@ -214,6 +203,7 @@ pub(crate) fn impose_signature_binding(
                     sig_num,
                     num_signatures,
                     sheet_idx,
+                    &mut xobject_cache,
                 )?;
                 page_refs.push(Object::Reference(back_page_id));
             }

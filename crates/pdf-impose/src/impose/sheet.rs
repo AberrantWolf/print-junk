@@ -1,15 +1,15 @@
 //! Sheet rendering for imposition using spread-based layout
 
+use super::page_source::{PageSource, XObjectCache};
 use crate::layout::{
     ArrangementConfig, PagePlacement, SpreadCutEdges, SpreadSheetLayout,
     calculate_spread_placements,
 };
 use crate::marks::{MarksConfig, MarksContext, generate_marks};
 use crate::options::ImpositionOptions;
-use crate::render::{create_page_xobject, render_page_numbers};
+use crate::render::render_page_numbers;
 use crate::types::Result;
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
-use std::collections::HashMap;
 
 // =============================================================================
 // Sheet Content Generation
@@ -32,26 +32,25 @@ pub(crate) struct SheetContent {
 /// into either a page (normal path) or a Form `XObject` (cascade path).
 pub(crate) fn generate_sheet_content(
     output: &mut Document,
-    source: &Document,
-    source_page_ids: &[ObjectId],
+    page_source: &PageSource,
     layout: &SpreadSheetLayout,
     cut_edges: &[SpreadCutEdges],
-    source_dimensions: &[(f32, f32)],
     options: &ImpositionOptions,
     signature_index: usize,
     total_signatures: usize,
     sheet_in_signature: usize,
+    xobject_cache: &mut XObjectCache,
 ) -> Result<SheetContent> {
     let mut content_ops = Vec::new();
     let mut xobjects = Dictionary::new();
     let mut fonts = Dictionary::new();
-    let mut xobject_cache: HashMap<ObjectId, ObjectId> = HashMap::new();
 
     // Calculate page placements from spreads
+    let source_dimensions = page_source.all_dimensions();
     let placements = calculate_spread_placements(
         &layout.spreads,
         cut_edges,
-        source_dimensions,
+        &source_dimensions,
         &options.margins.leaf,
         options.scaling_mode,
         layout.side,
@@ -60,17 +59,12 @@ pub(crate) fn generate_sheet_content(
     // Render each page placement
     for (idx, placement) in placements.iter().enumerate() {
         if let Some(source_idx) = placement.source_page
-            && source_idx < source_page_ids.len()
+            && source_idx < page_source.len()
+            && let Some(xobject_id) =
+                page_source.create_xobject(output, source_idx, xobject_cache)?
         {
-            let source_page_id = source_page_ids[source_idx];
             let xobject_name = format!("P{idx}");
-
-            // Create XObject
-            let xobject_id =
-                create_page_xobject(output, source, source_page_id, &mut xobject_cache)?;
             xobjects.set(xobject_name.as_bytes(), Object::Reference(xobject_id));
-
-            // Generate placement command
             content_ops.push(generate_placement_cmd(&xobject_name, placement));
         }
     }
@@ -121,11 +115,9 @@ pub(crate) fn generate_sheet_content(
 /// Render one side of a sheet using spread-based layout
 pub(crate) fn render_sheet_spreads(
     output: &mut Document,
-    source: &Document,
-    source_page_ids: &[ObjectId],
+    page_source: &PageSource,
     layout: &SpreadSheetLayout,
     cut_edges: &[SpreadCutEdges],
-    source_dimensions: &[(f32, f32)],
     sheet_width_pt: f32,
     sheet_height_pt: f32,
     parent_pages_id: ObjectId,
@@ -133,18 +125,18 @@ pub(crate) fn render_sheet_spreads(
     signature_index: usize,
     total_signatures: usize,
     sheet_in_signature: usize,
+    xobject_cache: &mut XObjectCache,
 ) -> Result<ObjectId> {
     let sheet = generate_sheet_content(
         output,
-        source,
-        source_page_ids,
+        page_source,
         layout,
         cut_edges,
-        source_dimensions,
         options,
         signature_index,
         total_signatures,
         sheet_in_signature,
+        xobject_cache,
     )?;
 
     let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);

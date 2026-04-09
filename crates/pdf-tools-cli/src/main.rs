@@ -473,7 +473,7 @@ async fn main() -> Result<()> {
             }
 
             // Perform imposition
-            let imposed = pdf_impose::impose(&documents, &options).await?;
+            let imposed = pdf_impose::impose(documents, &options).await?;
             pdf_impose::save_pdf(imposed, &output).await?;
             println!("Imposed → {}", output.display());
         }

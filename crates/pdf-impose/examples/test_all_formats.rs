@@ -172,7 +172,7 @@ async fn create_test_output(
     };
 
     // Perform imposition
-    let imposed = impose(&[source_doc], &options).await?;
+    let imposed = impose(vec![source_doc], &options).await?;
 
     // Save imposed
     let imposed_name = format!("{name}_imposed.pdf");
