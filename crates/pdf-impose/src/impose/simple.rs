@@ -101,6 +101,7 @@ pub(crate) fn impose_simple_binding(
                     cascade_height_pt,
                     &options.margins.sheet,
                     pages_tree_id,
+                    options.exterior_marks_appearance,
                 );
                 // Simple binding: only emit the front page (single-sided)
                 page_refs.push(Object::Reference(front_id));
@@ -120,6 +121,7 @@ pub(crate) fn impose_simple_binding(
                 cascade_height_pt,
                 &options.margins.sheet,
                 pages_tree_id,
+                options.exterior_marks_appearance,
             );
             page_refs.push(Object::Reference(front_id));
         }

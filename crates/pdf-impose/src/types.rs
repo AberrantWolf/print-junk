@@ -415,6 +415,38 @@ impl PrinterMarks {
 }
 
 // =============================================================================
+// Marks Appearance
+// =============================================================================
+
+/// Visual appearance settings for a group of printer's marks.
+///
+/// Controls line thickness and gray level. Two instances are used:
+/// one for interior marks (fold lines, trim marks, sewing marks — near
+/// trim/fold edges, risk of showing in the finished book) and one for
+/// exterior marks (crop marks, registration marks, collation marks,
+/// cascade cut lines — at sheet edges, reliably trimmed or covered).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default))]
+pub struct MarksAppearance {
+    /// Gray value for mark color: 0.0 = black (most visible), 1.0 = white (invisible).
+    /// Maps directly to the PDF `DeviceGray` colorspace operators (G/g).
+    pub gray: f32,
+    /// Multiplier applied to each mark type's base line width.
+    /// 1.0 = default widths, 0.5 = half width, 2.0 = double width.
+    pub line_width_scale: f32,
+}
+
+impl Default for MarksAppearance {
+    fn default() -> Self {
+        Self {
+            gray: 0.0,
+            line_width_scale: 1.0,
+        }
+    }
+}
+
+// =============================================================================
 // Sewing Configuration
 // =============================================================================
 
