@@ -38,6 +38,14 @@ impl Default for ZoomState {
 }
 
 impl ZoomState {
+    /// Reset render-derived fields while keeping user preferences (zoom level, fit mode).
+    /// Called when switching to a new document that may have different dimensions.
+    fn preserve_for_new_document(&mut self) {
+        self.rendered_zoom = None;
+        self.page_native_size = None;
+        self.scroll_offset_override = None;
+    }
+
     /// Compute a scroll offset that preserves the viewport center when zoom changes.
     /// `anchor_offset` is the point in viewport coordinates to keep stable
     /// (e.g. `viewport_size/2` for center, or cursor position for scroll-zoom).
@@ -87,6 +95,27 @@ impl ViewerState {
     /// Returns 0.0 when zoom is disabled (legacy mode).
     pub fn zoom_fraction(&self) -> f32 {
         self.zoom.as_ref().map_or(0.0, |z| z.zoom_percent / 100.0)
+    }
+
+    /// Update this viewer for a new document, preserving user-facing state
+    /// (page position, zoom, texture) where possible.
+    /// Returns the old `doc_id` if one existed (for cleanup).
+    pub fn update_for_new_document(
+        &mut self,
+        new_doc_id: DocumentId,
+        new_page_count: usize,
+    ) -> Option<DocumentId> {
+        let old_doc_id = self.current_doc_id.replace(new_doc_id);
+        self.total_pages = new_page_count;
+        if new_page_count == 0 {
+            self.current_page = 0;
+        } else {
+            self.current_page = self.current_page.min(new_page_count - 1);
+        }
+        if let Some(zoom) = &mut self.zoom {
+            zoom.preserve_for_new_document();
+        }
+        old_doc_id
     }
 }
 
