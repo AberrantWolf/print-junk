@@ -7,7 +7,8 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
-printpdf = "0.8"
+lopdf.workspace = true
+ttf-parser.workspace = true
 csv.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "sync", "rt"] }
