@@ -90,6 +90,8 @@ pub(crate) fn generate_sheet_content(
             options.marks,
             &marks_config,
             Some(&marks_ctx),
+            options.interior_marks_appearance,
+            options.exterior_marks_appearance,
         ));
     }
 

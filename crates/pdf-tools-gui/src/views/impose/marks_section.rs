@@ -93,8 +93,73 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
                     .changed();
             }
 
+            // Appearance controls
+            let has_interior = state.options.marks.fold_lines
+                || state.options.marks.trim_marks
+                || state.options.marks.sewing_marks;
+            let has_exterior = state.options.marks.crop_marks
+                || state.options.marks.registration_marks
+                || state.options.marks.collation_marks;
+
+            if has_interior || has_exterior {
+                ui.separator();
+            }
+
+            if has_interior {
+                ui.label("Interior marks (fold, trim, sewing):")
+                    .on_hover_text(
+                        "Marks near fold/trim edges that may be visible in the finished book",
+                    );
+                ui.indent("interior_appearance", |ui| {
+                    changed |=
+                        show_appearance_controls(ui, &mut state.options.interior_marks_appearance);
+                });
+            }
+
+            if has_exterior {
+                ui.label("Exterior marks (crop, registration, collation):")
+                    .on_hover_text("Marks at sheet edges, reliably trimmed or covered by binding");
+                ui.indent("exterior_appearance", |ui| {
+                    changed |=
+                        show_appearance_controls(ui, &mut state.options.exterior_marks_appearance);
+                });
+            }
+
             if changed {
                 state.needs_regeneration = true;
             }
         });
+}
+
+fn show_appearance_controls(
+    ui: &mut egui::Ui,
+    appearance: &mut pdf_impose::MarksAppearance,
+) -> bool {
+    let mut changed = false;
+
+    let prev_gray = appearance.gray;
+    ui.horizontal(|ui| {
+        ui.label("Gray:");
+        ui.add(
+            egui::Slider::new(&mut appearance.gray, 0.0..=1.0)
+                .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+        );
+    });
+    if (appearance.gray - prev_gray).abs() > f32::EPSILON {
+        changed = true;
+    }
+
+    let prev_scale = appearance.line_width_scale;
+    ui.horizontal(|ui| {
+        ui.label("Line weight:");
+        ui.add(egui::Slider::new(
+            &mut appearance.line_width_scale,
+            0.1..=4.0,
+        ));
+    });
+    if (appearance.line_width_scale - prev_scale).abs() > f32::EPSILON {
+        changed = true;
+    }
+
+    changed
 }

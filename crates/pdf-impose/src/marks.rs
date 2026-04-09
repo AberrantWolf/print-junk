@@ -15,7 +15,7 @@ use crate::constants::{
     REGISTRATION_MARK_WIDTH, SEWING_MARK_LENGTH, SEWING_MARK_WIDTH,
 };
 use crate::layout::{ArrangementConfig, Rect, SheetSide, SpreadPosition};
-use crate::types::{BindingType, PrinterMarks, SewingConfig};
+use crate::types::{BindingType, MarksAppearance, PrinterMarks, SewingConfig};
 
 // =============================================================================
 // Configuration
@@ -182,10 +182,16 @@ fn filter_marks_for_context(marks: PrinterMarks, ctx: &MarksContext) -> PrinterM
 ///
 /// Pass `ctx` as `None` when calling from the standalone render API (no binding context).
 /// Sewing and collation marks require a context and are silently skipped without one.
+///
+/// Marks are grouped by interior (fold lines, trim marks, sewing marks) and
+/// exterior (crop marks, registration marks, collation marks), each with
+/// independent appearance settings for gray level and line width scaling.
 pub fn generate_marks(
     marks: PrinterMarks,
     config: &MarksConfig,
     ctx: Option<&MarksContext>,
+    interior: MarksAppearance,
+    exterior: MarksAppearance,
 ) -> String {
     // Filter marks based on physical sheet side and position
     let marks = match ctx {
@@ -195,37 +201,49 @@ pub fn generate_marks(
 
     let mut ops = String::new();
 
-    // Save graphics state and set default stroke color
-    ops.push_str("q\n0 0 0 RG\n");
+    // Interior marks: fold lines, trim marks, sewing marks
+    let has_interior =
+        marks.fold_lines || marks.trim_marks || (ctx.is_some() && marks.sewing_marks);
+    if has_interior {
+        let _ = write!(ops, "q\n{g} G\n{g} g\n", g = interior.gray);
+        let scale = interior.line_width_scale;
 
-    if marks.fold_lines {
-        ops.push_str(&generate_fold_lines(config));
-    }
-
-    if marks.trim_marks {
-        ops.push_str(&generate_trim_marks(config));
-    }
-
-    if marks.crop_marks {
-        ops.push_str(&generate_crop_marks(config));
-    }
-
-    if marks.registration_marks {
-        ops.push_str(&generate_registration_marks(config));
-    }
-
-    if let Some(ctx) = ctx {
-        if marks.sewing_marks {
-            ops.push_str(&generate_sewing_marks(config, ctx));
+        if marks.fold_lines {
+            ops.push_str(&generate_fold_lines(config, scale));
+        }
+        if marks.trim_marks {
+            ops.push_str(&generate_trim_marks(config, scale));
+        }
+        if let Some(ctx) = ctx
+            && marks.sewing_marks
+        {
+            ops.push_str(&generate_sewing_marks(config, ctx, scale));
         }
 
-        if marks.collation_marks {
+        ops.push_str("Q\n");
+    }
+
+    // Exterior marks: crop marks, registration marks, collation marks
+    let has_exterior =
+        marks.crop_marks || marks.registration_marks || (ctx.is_some() && marks.collation_marks);
+    if has_exterior {
+        let _ = write!(ops, "q\n{g} G\n{g} g\n", g = exterior.gray);
+        let scale = exterior.line_width_scale;
+
+        if marks.crop_marks {
+            ops.push_str(&generate_crop_marks(config, scale));
+        }
+        if marks.registration_marks {
+            ops.push_str(&generate_registration_marks(config, scale));
+        }
+        if let Some(ctx) = ctx
+            && marks.collation_marks
+        {
             ops.push_str(&generate_collation_marks(config, ctx));
         }
-    }
 
-    // Restore graphics state
-    ops.push_str("Q\n");
+        ops.push_str("Q\n");
+    }
 
     ops
 }
@@ -239,9 +257,10 @@ pub fn generate_marks(
 /// Draws dashed lines at:
 /// - Inter-spread boundaries (horizontal and vertical)
 /// - Spine fold within each spread column (vertical, contained within each row)
-fn generate_fold_lines(config: &MarksConfig) -> String {
+fn generate_fold_lines(config: &MarksConfig, scale: f32) -> String {
     let mut ops = String::new();
-    let _ = write!(ops, "{FOLD_LINE_WIDTH} w\n[6 3] 0 d\n");
+    let w = FOLD_LINE_WIDTH * scale;
+    let _ = write!(ops, "{w} w\n[6 3] 0 d\n");
 
     // Vertical fold lines at inter-spread boundaries
     for &x in &config.vertical_boundary_xs {
@@ -278,13 +297,14 @@ fn generate_fold_lines(config: &MarksConfig) -> String {
 /// sheet margin area.
 ///
 /// Only drawn when there are inter-spread boundaries (quarto, octavo, etc.).
-fn generate_trim_marks(config: &MarksConfig) -> String {
+fn generate_trim_marks(config: &MarksConfig, scale: f32) -> String {
     if config.horizontal_boundary_ys.is_empty() && config.vertical_boundary_xs.is_empty() {
         return String::new();
     }
 
     let mut ops = String::new();
-    let _ = write!(ops, "{CROP_MARK_WIDTH} w\n[] 0 d\n");
+    let w = CROP_MARK_WIDTH * scale;
+    let _ = write!(ops, "{w} w\n[] 0 d\n");
 
     let half_gap = config.trim_allowance_pt / 2.0;
 
@@ -359,9 +379,10 @@ fn draw_trim_extension(x: f32, y: f32, dx: f32, dy: f32) -> String {
 // =============================================================================
 
 /// Generate crop marks (L-shaped marks at corners of the leaf area)
-fn generate_crop_marks(config: &MarksConfig) -> String {
+fn generate_crop_marks(config: &MarksConfig, scale: f32) -> String {
     let mut ops = String::new();
-    let _ = write!(ops, "{CROP_MARK_WIDTH} w\n[] 0 d\n");
+    let w = CROP_MARK_WIDTH * scale;
+    let _ = write!(ops, "{w} w\n[] 0 d\n");
     ops.push_str(&draw_corner_marks(
         config.leaf_left,
         config.leaf_bottom,
@@ -410,9 +431,10 @@ fn draw_corner_mark(x: f32, y: f32, x_sign: f32, y_sign: f32) -> String {
 // =============================================================================
 
 /// Generate registration marks (crosshair circles at midpoints of leaf edges)
-fn generate_registration_marks(config: &MarksConfig) -> String {
+fn generate_registration_marks(config: &MarksConfig, scale: f32) -> String {
     let mut ops = String::new();
-    let _ = writeln!(ops, "{REGISTRATION_MARK_WIDTH} w");
+    let w = REGISTRATION_MARK_WIDTH * scale;
+    let _ = writeln!(ops, "{w} w");
 
     let offset = CROP_MARK_GAP + REGISTRATION_MARK_SIZE;
     let half_size = REGISTRATION_MARK_SIZE / 2.0;
@@ -458,13 +480,14 @@ fn draw_registration_mark(cx: f32, cy: f32, half_size: f32) -> String {
 /// Auto-filters: only renders for signature/case binding.
 /// Draws small horizontal tick marks at kettle stitch and sewing station positions
 /// along the spine fold of each spread column.
-fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext) -> String {
+fn generate_sewing_marks(config: &MarksConfig, ctx: &MarksContext, scale: f32) -> String {
     if !ctx.binding_type.uses_signatures() {
         return String::new();
     }
 
     let mut ops = String::new();
-    let _ = write!(ops, "{SEWING_MARK_WIDTH} w\n[] 0 d\n");
+    let w = SEWING_MARK_WIDTH * scale;
+    let _ = write!(ops, "{w} w\n[] 0 d\n");
 
     let kettle_offset_pt = mm_to_pt(ctx.sewing_config.kettle_offset_mm);
     let half_mark = SEWING_MARK_LENGTH / 2.0;
@@ -521,7 +544,6 @@ fn generate_collation_marks(config: &MarksConfig, ctx: &MarksContext) -> String 
     }
 
     let mut ops = String::new();
-    ops.push_str("0 0 0 rg\n");
 
     let leaf_height = config.leaf_top - config.leaf_bottom;
 

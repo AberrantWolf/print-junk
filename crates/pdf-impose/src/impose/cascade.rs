@@ -5,7 +5,7 @@
 //! mirrored according to the flip axis for correct duplex alignment.
 
 use crate::constants::{CASCADE_CUT_LINE_WIDTH, mm_to_pt};
-use crate::types::{CascadeConfig, FlipAxis, SheetMargins};
+use crate::types::{CascadeConfig, FlipAxis, MarksAppearance, SheetMargins};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
 use std::fmt::Write;
 
@@ -28,6 +28,7 @@ pub(crate) fn render_cascade_page(
     cascade_height_pt: f32,
     sheet_margins: &SheetMargins,
     parent_pages_id: ObjectId,
+    exterior_appearance: MarksAppearance,
 ) -> (ObjectId, ObjectId) {
     let gap = mm_to_pt(cascade.margin_mm);
     let margin_left = mm_to_pt(sheet_margins.left_mm);
@@ -45,6 +46,7 @@ pub(crate) fn render_cascade_page(
             cascade_height_pt,
             margin_left,
             margin_bottom,
+            exterior_appearance,
         )
     } else {
         String::new()
@@ -177,9 +179,12 @@ fn generate_cascade_cut_lines(
     total_height_pt: f32,
     offset_x: f32,
     offset_y: f32,
+    appearance: MarksAppearance,
 ) -> String {
     let mut ops = String::new();
-    let _ = writeln!(ops, "q {CASCADE_CUT_LINE_WIDTH} w [] 0 d");
+    let w = CASCADE_CUT_LINE_WIDTH * appearance.line_width_scale;
+    let g = appearance.gray;
+    let _ = writeln!(ops, "q {w} w [] 0 d {g} G");
 
     // Vertical cut lines (between columns)
     for col in 1..cols {
