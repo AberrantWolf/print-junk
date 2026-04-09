@@ -31,7 +31,15 @@ pub fn show(
             ui.add_space(5.0);
 
             if FileListEditor::new(&mut state.options.input_files).show(ui) {
-                state.needs_regeneration = true;
+                if state.options.input_files.is_empty() {
+                    state.preview_viewer = None;
+                    state.preview_page_count = 0;
+                    state.preview_signatures_shown = None;
+                    state.preview_total_signatures = None;
+                    state.stats = None;
+                } else {
+                    state.needs_regeneration = true;
+                }
             }
         });
 }
