@@ -112,6 +112,22 @@ enum Commands {
         #[arg(long)]
         collation_marks: bool,
 
+        /// Gray value for interior marks (fold, trim, sewing): 0.0 = black, 1.0 = white
+        #[arg(long, default_value = "0.0", value_parser = non_negative_f32)]
+        interior_marks_gray: f32,
+
+        /// Line width scale for interior marks (fold, trim, sewing): 1.0 = default
+        #[arg(long, default_value = "1.0", value_parser = non_negative_f32)]
+        interior_marks_line_scale: f32,
+
+        /// Gray value for exterior marks (crop, registration, collation): 0.0 = black, 1.0 = white
+        #[arg(long, default_value = "0.0", value_parser = non_negative_f32)]
+        exterior_marks_gray: f32,
+
+        /// Line width scale for exterior marks (crop, registration, collation): 1.0 = default
+        #[arg(long, default_value = "1.0", value_parser = non_negative_f32)]
+        exterior_marks_line_scale: f32,
+
         /// Number of sewing stations between kettle stitches
         #[arg(long, default_value = "3")]
         sewing_stations: usize,
@@ -382,6 +398,10 @@ async fn main() -> Result<()> {
             registration_marks,
             sewing_marks,
             collation_marks,
+            interior_marks_gray,
+            interior_marks_line_scale,
+            exterior_marks_gray,
+            exterior_marks_line_scale,
             sewing_stations,
             kettle_offset,
             sheet_margin,
@@ -437,6 +457,14 @@ async fn main() -> Result<()> {
                     registration_marks,
                     sewing_marks,
                     collation_marks,
+                },
+                interior_marks_appearance: pdf_impose::MarksAppearance {
+                    gray: interior_marks_gray,
+                    line_width_scale: interior_marks_line_scale,
+                },
+                exterior_marks_appearance: pdf_impose::MarksAppearance {
+                    gray: exterior_marks_gray,
+                    line_width_scale: exterior_marks_line_scale,
                 },
                 sewing_config: pdf_impose::SewingConfig {
                     station_count: sewing_stations,

@@ -3,8 +3,9 @@ use crate::layout::Rect;
 use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
 use crate::layout::spread::calculate_spread_content;
 use crate::types::{
-    BindingType, CascadeConfig, ImposeError, Margins, Orientation, OutputFormat, PageArrangement,
-    PaperSize, PrinterMarks, Result, Rotation, ScalingMode, SewingConfig, SplitMode,
+    BindingType, CascadeConfig, ImposeError, Margins, MarksAppearance, Orientation, OutputFormat,
+    PageArrangement, PaperSize, PrinterMarks, Result, Rotation, ScalingMode, SewingConfig,
+    SplitMode,
 };
 use std::path::PathBuf;
 
@@ -35,6 +36,16 @@ pub struct ImpositionOptions {
 
     // Printer's marks
     pub marks: PrinterMarks,
+
+    // Marks appearance
+    /// Appearance for interior marks (fold lines, trim marks, sewing marks) —
+    /// near trim/fold edges, potentially visible in the finished book.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub interior_marks_appearance: MarksAppearance,
+    /// Appearance for exterior marks (crop marks, registration marks, collation marks,
+    /// cascade cut lines) — at sheet edges, reliably trimmed or covered by binding.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub exterior_marks_appearance: MarksAppearance,
 
     // Sewing configuration (for sewing station marks)
     pub sewing_config: SewingConfig,
@@ -70,6 +81,8 @@ impl Default for ImpositionOptions {
             scaling_mode: ScalingMode::Fit,
             margins: Margins::default(),
             marks: PrinterMarks::default(),
+            interior_marks_appearance: MarksAppearance::default(),
+            exterior_marks_appearance: MarksAppearance::default(),
             sewing_config: SewingConfig::default(),
             add_page_numbers: false,
             page_number_start: 1,
@@ -210,6 +223,23 @@ impl ImpositionOptions {
             return Err(ImposeError::Config(
                 "Leaf margins and trim allowance must not be negative".to_string(),
             ));
+        }
+
+        // Validate marks appearance
+        for (name, appearance) in [
+            ("Interior", &self.interior_marks_appearance),
+            ("Exterior", &self.exterior_marks_appearance),
+        ] {
+            if !(0.0..=1.0).contains(&appearance.gray) {
+                return Err(ImposeError::Config(format!(
+                    "{name} marks gray must be between 0.0 and 1.0"
+                )));
+            }
+            if appearance.line_width_scale <= 0.0 {
+                return Err(ImposeError::Config(format!(
+                    "{name} marks line width scale must be positive"
+                )));
+            }
         }
 
         if self.sewing_config.kettle_offset_mm < 0.0 {
