@@ -321,37 +321,51 @@ impl eframe::App for PdfToolsApp {
                 }
                 PdfUpdate::ViewerLoaded { doc_id, page_count } => {
                     let is_standalone_viewer = matches!(self.mode, Mode::Viewer);
-                    let new_viewer_state = ViewerState {
-                        current_doc_id: Some(doc_id),
-                        current_page: 0,
-                        total_pages: page_count,
-                        page_texture: None,
-                        zoom: Some(ZoomState::default()),
-                        show_close_button: is_standalone_viewer,
+
+                    // Get the relevant viewer for the active mode
+                    let viewer_ref = match self.mode {
+                        Mode::Flashcards => &mut self.flashcard_state.preview_viewer,
+                        Mode::Viewer => &mut self.viewer_state,
+                        Mode::Impose => &mut self.impose_state.preview_viewer,
                     };
 
-                    // Update viewer state based on current mode
-                    match self.mode {
-                        Mode::Flashcards => {
-                            self.flashcard_state.preview_viewer = Some(new_viewer_state.clone());
-                        }
-                        Mode::Viewer => {
-                            self.viewer_state = Some(new_viewer_state.clone());
-                        }
-                        Mode::Impose => {
-                            self.impose_state.preview_viewer = Some(new_viewer_state.clone());
-                        }
+                    let (old_doc_id, page_to_render) = if let Some(existing) = viewer_ref {
+                        // Update in place — preserves texture, zoom, page, scroll
+                        let old = existing.update_for_new_document(doc_id, page_count);
+                        let page = existing.current_page;
+                        (old, page)
+                    } else {
+                        // First load — no existing state to preserve
+                        *viewer_ref = Some(ViewerState {
+                            current_doc_id: Some(doc_id),
+                            current_page: 0,
+                            total_pages: page_count,
+                            page_texture: None,
+                            zoom: Some(ZoomState::default()),
+                            show_close_button: is_standalone_viewer,
+                        });
+                        (None, 0)
+                    };
+
+                    // Clean up old document from worker memory
+                    if let Some(old_id) = old_doc_id {
+                        let _ = self
+                            .command_tx
+                            .send(PdfCommand::ViewerClose { doc_id: old_id });
                     }
-                    // First render at 100%; fit-to-window will adjust on next frame
-                    let zoom_level = 1.0;
+
+                    // Render the preserved page at the preserved zoom level
+                    let zoom_level = viewer_ref.as_ref().map_or(1.0, |s| {
+                        let frac = s.zoom_fraction();
+                        if frac <= 0.0 { 1.0 } else { frac }
+                    });
 
                     log::info!("Loaded PDF with {page_count} pages");
                     self.progress = None;
 
-                    // Request render of first page
                     let _ = self.command_tx.send(PdfCommand::ViewerRenderPage {
                         doc_id,
-                        page_index: 0,
+                        page_index: page_to_render,
                         zoom_level,
                     });
                 }
@@ -368,8 +382,10 @@ impl eframe::App for PdfToolsApp {
                     let color_image =
                         egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba_data);
 
-                    // Update the appropriate viewer state
-                    if let Some(state) = &mut self.viewer_state {
+                    // Update the appropriate viewer state (only if doc_id matches)
+                    if let Some(state) = &mut self.viewer_state
+                        && state.current_doc_id == Some(doc_id)
+                    {
                         if let Some(texture) = &mut state.page_texture {
                             texture.set(color_image.clone(), egui::TextureOptions::default());
                         } else {
@@ -379,7 +395,6 @@ impl eframe::App for PdfToolsApp {
                                 egui::TextureOptions::default(),
                             ));
                         }
-                        // Update zoom state with native page dimensions and rendered zoom
                         if let Some(zoom) = &mut state.zoom {
                             if page_width_pts > 0.0 && page_height_pts > 0.0 {
                                 zoom.page_native_size = Some((page_width_pts, page_height_pts));
@@ -395,7 +410,9 @@ impl eframe::App for PdfToolsApp {
                         ),
                         ("impose_preview", &mut self.impose_state.preview_viewer),
                     ] {
-                        if let Some(state) = preview {
+                        if let Some(state) = preview
+                            && state.current_doc_id == Some(doc_id)
+                        {
                             if let Some(texture) = &mut state.page_texture {
                                 texture.set(color_image.clone(), egui::TextureOptions::default());
                             } else {
@@ -455,9 +472,25 @@ impl eframe::App for PdfToolsApp {
 
                     self.progress = None;
                 }
-                PdfUpdate::ViewerClosed { .. } => {
-                    self.viewer_state = None;
-                    log::info!("Closed PDF");
+                PdfUpdate::ViewerClosed { doc_id } => {
+                    // Only clear if the closed doc_id matches the current one
+                    // (stale close events arrive when old documents are replaced)
+                    if let Some(state) = &self.viewer_state
+                        && state.current_doc_id == Some(doc_id)
+                    {
+                        self.viewer_state = None;
+                        log::info!("Closed PDF");
+                    }
+                    if let Some(state) = &self.flashcard_state.preview_viewer
+                        && state.current_doc_id == Some(doc_id)
+                    {
+                        self.flashcard_state.preview_viewer = None;
+                    }
+                    if let Some(state) = &self.impose_state.preview_viewer
+                        && state.current_doc_id == Some(doc_id)
+                    {
+                        self.impose_state.preview_viewer = None;
+                    }
                 }
             }
         }
