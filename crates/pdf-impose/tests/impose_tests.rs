@@ -115,7 +115,7 @@ async fn test_impose_no_pages() {
     let mut options = ImpositionOptions::default();
     options.input_files.push(PathBuf::from("test.pdf"));
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_err());
     match result {
         Err(ImposeError::NoPages) => {}
@@ -128,7 +128,7 @@ async fn test_impose_validation_fails() {
     let doc = create_test_pdf(5);
     let options = ImpositionOptions::default(); // No input files
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_err());
     match result {
         Err(ImposeError::Config(_)) => {}
@@ -144,7 +144,7 @@ async fn test_impose_signature_basic() {
     options.binding_type = BindingType::Signature;
     options.page_arrangement = PageArrangement::Quarto;
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -159,7 +159,7 @@ async fn test_impose_perfect_binding() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.binding_type = BindingType::PerfectBinding;
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -189,7 +189,7 @@ async fn test_impose_with_different_paper_sizes() {
 
     for paper_size in paper_sizes {
         options.output_paper_size = paper_size;
-        let result = impose(std::slice::from_ref(&doc), &options).await;
+        let result = impose(vec![doc.clone()], &options).await;
         assert!(result.is_ok(), "Failed for paper size: {paper_size:?}");
     }
 }
@@ -209,7 +209,7 @@ async fn test_impose_with_scaling_modes() {
 
     for mode in scaling_modes {
         options.scaling_mode = mode;
-        let result = impose(std::slice::from_ref(&doc), &options).await;
+        let result = impose(vec![doc.clone()], &options).await;
         assert!(result.is_ok(), "Failed for scaling mode: {mode:?}");
     }
 }
@@ -221,7 +221,7 @@ async fn test_impose_folio() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.page_arrangement = PageArrangement::Folio;
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -236,7 +236,7 @@ async fn test_impose_octavo() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.page_arrangement = PageArrangement::Octavo;
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -252,7 +252,7 @@ async fn test_impose_with_multi_sheet_folio() {
     options.page_arrangement = PageArrangement::Folio;
     options.sheets_per_signature = 3; // 3 sheets × 4 pages = 12 pages per signature
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -267,7 +267,7 @@ async fn test_impose_side_stitch() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.binding_type = BindingType::SideStitch;
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -282,7 +282,7 @@ async fn test_impose_spiral() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.binding_type = BindingType::Spiral;
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -297,7 +297,7 @@ async fn test_impose_case_binding() {
     options.input_files.push(PathBuf::from("test.pdf"));
     options.binding_type = BindingType::CaseBinding;
 
-    let result = impose(&[doc], &options).await;
+    let result = impose(vec![doc], &options).await;
     assert!(result.is_ok());
 
     let output = result.unwrap();
@@ -331,7 +331,7 @@ async fn test_full_workflow() {
     options.output_paper_size = PaperSize::Letter;
 
     // Perform imposition
-    let imposed = impose(&[loaded], &options).await.unwrap();
+    let imposed = impose(vec![loaded], &options).await.unwrap();
 
     // Save output
     save_pdf(imposed, &output_path).await.unwrap();

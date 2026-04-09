@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
     };
 
     // Perform imposition
-    let imposed = impose(&[source_doc], &options).await?;
+    let imposed = impose(vec![source_doc], &options).await?;
 
     // Save the imposed PDF
     save_pdf(imposed, "test_quarto_imposed.pdf").await?;
