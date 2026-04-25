@@ -130,6 +130,11 @@ fn place_single_page(
 /// * `source_dimensions` - Dimensions of all source pages
 /// * `leaf_margins` - Margin configuration
 /// * `scaling_mode` - How to scale pages
+/// * `sheet_side` - Front or back of the physical sheet
+/// * `creep_offsets_pt` - Per-side creep offsets in points: one `(verso_pt,
+///   recto_pt)` tuple per spread. Each value is non-negative; the verso page
+///   shifts right by `verso_pt` and the recto page shifts left by `recto_pt`
+///   (both toward the spine). Pass `&[]` for no creep.
 ///
 /// # Returns
 /// Vector of all `PagePlacements` for rendering
@@ -140,12 +145,18 @@ pub fn calculate_spread_placements(
     leaf_margins: &LeafMargins,
     scaling_mode: ScalingMode,
     sheet_side: SheetSide,
+    creep_offsets_pt: &[(f32, f32)],
 ) -> Vec<PagePlacement> {
     spreads
         .iter()
         .zip(cut_edges.iter())
-        .flat_map(|(spread_pos, cuts)| {
+        .enumerate()
+        .flat_map(|(spread_idx, (spread_pos, cuts))| {
             let content_areas = calculate_spread_content(spread_pos, leaf_margins, *cuts);
+            let (verso_creep, recto_creep) = creep_offsets_pt
+                .get(spread_idx)
+                .copied()
+                .unwrap_or((0.0, 0.0));
             let mut placements = Vec::with_capacity(2);
 
             // Place verso (left) page
@@ -155,7 +166,7 @@ pub fn calculate_spread_placements(
                     .copied()
                     .unwrap_or(DEFAULT_PAGE_DIMENSIONS);
 
-                placements.push(place_single_page(
+                let mut placement = place_single_page(
                     verso_idx,
                     &content_areas.verso,
                     src_w,
@@ -164,7 +175,10 @@ pub fn calculate_spread_placements(
                     spread_pos,
                     PageSide::Verso,
                     sheet_side,
-                ));
+                );
+                // Shift verso content right (toward spine)
+                placement.content_rect.x += verso_creep;
+                placements.push(placement);
             }
 
             // Place recto (right) page
@@ -174,7 +188,7 @@ pub fn calculate_spread_placements(
                     .copied()
                     .unwrap_or(DEFAULT_PAGE_DIMENSIONS);
 
-                placements.push(place_single_page(
+                let mut placement = place_single_page(
                     recto_idx,
                     &content_areas.recto,
                     src_w,
@@ -183,7 +197,10 @@ pub fn calculate_spread_placements(
                     spread_pos,
                     PageSide::Recto,
                     sheet_side,
-                ));
+                );
+                // Shift recto content left (toward spine)
+                placement.content_rect.x -= recto_creep;
+                placements.push(placement);
             }
 
             placements

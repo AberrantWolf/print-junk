@@ -3,9 +3,9 @@ use crate::layout::Rect;
 use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
 use crate::layout::spread::calculate_spread_content;
 use crate::types::{
-    BindingType, CascadeConfig, ImposeError, Margins, MarksAppearance, Orientation, OutputFormat,
-    PageArrangement, PaperSize, PrinterMarks, Result, Rotation, ScalingMode, SewingConfig,
-    SplitMode,
+    BindingType, CascadeConfig, CreepConfig, ImposeError, Margins, MarksAppearance, Orientation,
+    OutputFormat, PageArrangement, PaperSize, PrinterMarks, Result, Rotation, ScalingMode,
+    SewingConfig, SplitMode,
 };
 use std::path::PathBuf;
 
@@ -66,6 +66,10 @@ pub struct ImpositionOptions {
 
     // Cascade (tile multiple imposed sheets on a larger output page)
     pub cascade: Option<CascadeConfig>,
+
+    // Creep (shingling) compensation for folded signatures
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub creep: CreepConfig,
 }
 
 impl Default for ImpositionOptions {
@@ -91,6 +95,7 @@ impl Default for ImpositionOptions {
             split_mode: SplitMode::None,
             source_rotation: Rotation::None,
             cascade: None,
+            creep: CreepConfig::default(),
         }
     }
 }
@@ -246,6 +251,21 @@ impl ImpositionOptions {
             return Err(ImposeError::Config(
                 "Kettle stitch offset must not be negative".to_string(),
             ));
+        }
+
+        // Validate creep configuration
+        match self.creep {
+            CreepConfig::PerLayer { creep_per_layer_mm } if creep_per_layer_mm < 0.0 => {
+                return Err(ImposeError::Config(
+                    "Creep per layer must not be negative".to_string(),
+                ));
+            }
+            CreepConfig::FromCaliper { paper_thickness_mm } if paper_thickness_mm < 0.0 => {
+                return Err(ImposeError::Config(
+                    "Paper thickness must not be negative".to_string(),
+                ));
+            }
+            _ => {}
         }
 
         // Validate output format compatibility with binding type

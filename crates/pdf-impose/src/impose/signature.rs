@@ -11,6 +11,7 @@ use super::sheet::{create_sheet_xobject, generate_sheet_content, render_sheet_sp
 use crate::layout::{
     SheetSide, SpreadSheetLayout, apply_page_assignments, assign_pages_to_spreads,
     calculate_cut_edges, calculate_signature_count, calculate_spread_positions,
+    creep_offsets_for_face,
 };
 use crate::options::ImpositionOptions;
 use crate::types::Result;
@@ -64,6 +65,21 @@ pub(crate) fn impose_signature_binding(
             );
 
             for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
+                let front_creep = creep_offsets_for_face(
+                    options.creep,
+                    arrangement,
+                    sheet_idx,
+                    options.sheets_per_signature,
+                    SheetSide::Front,
+                );
+                let back_creep = creep_offsets_for_face(
+                    options.creep,
+                    arrangement,
+                    sheet_idx,
+                    options.sheets_per_signature,
+                    SheetSide::Back,
+                );
+
                 // Front
                 let front_spreads = apply_page_assignments(
                     &spread_positions,
@@ -81,6 +97,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
+                    &front_creep,
                 )?;
                 let front_xobject =
                     create_sheet_xobject(&mut output, front_content, cell_width_pt, cell_height_pt);
@@ -102,6 +119,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
+                    &back_creep,
                 )?;
                 let back_xobject =
                     create_sheet_xobject(&mut output, back_content, cell_width_pt, cell_height_pt);
@@ -161,6 +179,21 @@ pub(crate) fn impose_signature_binding(
             );
 
             for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
+                let front_creep = creep_offsets_for_face(
+                    options.creep,
+                    arrangement,
+                    sheet_idx,
+                    options.sheets_per_signature,
+                    SheetSide::Front,
+                );
+                let back_creep = creep_offsets_for_face(
+                    options.creep,
+                    arrangement,
+                    sheet_idx,
+                    options.sheets_per_signature,
+                    SheetSide::Back,
+                );
+
                 // Front side
                 let front_spreads = apply_page_assignments(
                     &spread_positions,
@@ -182,6 +215,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
+                    &front_creep,
                 )?;
                 page_refs.push(Object::Reference(front_page_id));
 
@@ -206,6 +240,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
+                    &back_creep,
                 )?;
                 page_refs.push(Object::Reference(back_page_id));
             }
