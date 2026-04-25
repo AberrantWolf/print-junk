@@ -112,7 +112,7 @@ fn main() {
     println!("cargo:warning=Downloading from {download_url}");
     download_file(&download_url, &temp_file);
 
-    let file_size = fs::metadata(&temp_file).map(|m| m.len()).unwrap_or(0);
+    let file_size = fs::metadata(&temp_file).map_or(0, |m| m.len());
     println!("cargo:warning=Downloaded {file_size} bytes");
 
     println!("cargo:warning=Extracting to {}", pdfium_dir.display());
