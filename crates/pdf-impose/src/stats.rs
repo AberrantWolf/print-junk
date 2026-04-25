@@ -3,6 +3,7 @@
 //! Calculates output statistics without performing the actual imposition.
 
 use crate::constants::PAGES_PER_LEAF;
+use crate::layout::max_creep_offset_mm;
 use crate::options::ImpositionOptions;
 use crate::types::{CascadeConfig, ImposeError, ImpositionStatistics, Result, Warning};
 use lopdf::Document;
@@ -53,7 +54,23 @@ fn calculate_signature_stats(
     let num_signatures = padded_count / pages_per_sig;
     let total_sheets = num_signatures * sheets_per_sig;
 
-    let warnings = blank_padding_warnings(blank_pages_added, padded_count);
+    let mut warnings = blank_padding_warnings(blank_pages_added, padded_count);
+
+    // Check if creep compensation exceeds spine margin
+    if options.creep.is_enabled() {
+        let max_creep = max_creep_offset_mm(
+            options.creep,
+            options.page_arrangement,
+            options.sheets_per_signature,
+        );
+        let spine_mm = options.margins.leaf.spine_mm;
+        if max_creep > spine_mm {
+            warnings.push(Warning::CreepExceedsSpineMargin {
+                max_creep_mm: max_creep,
+                spine_mm,
+            });
+        }
+    }
 
     let cascade_cells_per_sheet = options
         .cascade

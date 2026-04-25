@@ -40,6 +40,7 @@ pub(crate) fn generate_sheet_content(
     total_signatures: usize,
     sheet_in_signature: usize,
     xobject_cache: &mut XObjectCache,
+    creep_offsets_pt: &[(f32, f32)],
 ) -> Result<SheetContent> {
     let mut content_ops = Vec::new();
     let mut xobjects = Dictionary::new();
@@ -54,6 +55,7 @@ pub(crate) fn generate_sheet_content(
         &options.margins.leaf,
         options.scaling_mode,
         layout.side,
+        creep_offsets_pt,
     );
 
     // Render each page placement
@@ -128,6 +130,7 @@ pub(crate) fn render_sheet_spreads(
     total_signatures: usize,
     sheet_in_signature: usize,
     xobject_cache: &mut XObjectCache,
+    creep_offsets_pt: &[(f32, f32)],
 ) -> Result<ObjectId> {
     let sheet = generate_sheet_content(
         output,
@@ -139,6 +142,7 @@ pub(crate) fn render_sheet_spreads(
         total_signatures,
         sheet_in_signature,
         xobject_cache,
+        creep_offsets_pt,
     )?;
 
     let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);
