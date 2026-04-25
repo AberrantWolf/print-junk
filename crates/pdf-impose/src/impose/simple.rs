@@ -8,11 +8,51 @@ use super::page_source::{PageSource, XObjectCache};
 use super::sheet::{create_sheet_xobject, generate_sheet_content, render_sheet_spreads};
 use super::signature::finalize_document;
 use crate::layout::{
-    SheetSide, Spread, SpreadCutEdges, SpreadSheetLayout, calculate_spread_positions,
+    Edge, Rect, SheetSide, SheetSlot, Spread, SpreadCutEdges, SpreadSheetLayout,
+    calculate_spread_positions,
 };
 use crate::options::ImpositionOptions;
-use crate::types::{PageArrangement, Result};
+use crate::types::{CreepConfig, PageArrangement, Result};
 use lopdf::{Document, Object};
+
+/// Build the two slots (verso, recto) for a single 2-up sheet.
+///
+/// Simple binding has no fold geometry: every leaf is glued at the spine, so
+/// `leaf_depth` is uniformly 0 and creep doesn't apply. Spine edges still
+/// matter because they drive content alignment toward the gutter.
+fn slots_for_simple_spread(
+    spread_bounds: Rect,
+    left: Option<usize>,
+    right: Option<usize>,
+) -> Vec<SheetSlot> {
+    let half_w = spread_bounds.width / 2.0;
+    vec![
+        SheetSlot {
+            rect: Rect::new(
+                spread_bounds.x,
+                spread_bounds.y,
+                half_w,
+                spread_bounds.height,
+            ),
+            rotated: false,
+            leaf_depth: 0,
+            spine_edge: Edge::Right,
+            source_page: left,
+        },
+        SheetSlot {
+            rect: Rect::new(
+                spread_bounds.x + half_w,
+                spread_bounds.y,
+                half_w,
+                spread_bounds.height,
+            ),
+            rotated: false,
+            leaf_depth: 0,
+            spine_edge: Edge::Left,
+            source_page: right,
+        },
+    ]
+}
 
 /// Impose using simple 2-up binding (perfect binding, side stitch, spiral)
 ///
@@ -68,13 +108,18 @@ pub(crate) fn impose_simple_binding(
 
             let spread = Spread::new(left_page, right_page);
             let mut spread_pos = spread_positions[0].clone();
+            let spread_bounds = spread_pos.bounds();
             spread_pos.spread = spread;
 
             let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
+            let slots = slots_for_simple_spread(spread_bounds, left_page, right_page);
 
+            // Simple binding (perfect/side-stitch/spiral) glues single leaves at
+            // the spine, so there is no fold geometry and creep is meaningless.
             let content = generate_sheet_content(
                 &mut output,
                 page_source,
+                &slots,
                 &layout,
                 &cut_edges,
                 options,
@@ -82,6 +127,7 @@ pub(crate) fn impose_simple_binding(
                 1,
                 0,
                 &mut xobject_cache,
+                CreepConfig::None,
             )?;
             let xobject = create_sheet_xobject(&mut output, content, cell_width_pt, cell_height_pt);
 
@@ -141,13 +187,17 @@ pub(crate) fn impose_simple_binding(
 
             let spread = Spread::new(left_page, right_page);
             let mut spread_pos = spread_positions[0].clone();
+            let spread_bounds = spread_pos.bounds();
             spread_pos.spread = spread;
 
             let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
+            let slots = slots_for_simple_spread(spread_bounds, left_page, right_page);
 
+            // No creep for simple binding: see comment in the cascade path above.
             let page_id = render_sheet_spreads(
                 &mut output,
                 page_source,
+                &slots,
                 &layout,
                 &cut_edges,
                 cell_width_pt,
@@ -158,6 +208,7 @@ pub(crate) fn impose_simple_binding(
                 1,
                 0,
                 &mut xobject_cache,
+                CreepConfig::None,
             )?;
             page_refs.push(Object::Reference(page_id));
         }

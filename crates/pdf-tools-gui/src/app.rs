@@ -138,12 +138,12 @@ impl eframe::App for PdfToolsApp {
         for path in dropped {
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
             match self.mode {
-                Mode::Impose if ext == "pdf" => {
-                    if !self.impose_state.options.input_files.contains(&path) {
-                        log::info!("Adding PDF to impose inputs: {}", path.display());
-                        self.impose_state.options.input_files.push(path);
-                        self.impose_state.needs_regeneration = true;
-                    }
+                Mode::Impose
+                    if ext == "pdf" && !self.impose_state.options.input_files.contains(&path) =>
+                {
+                    log::info!("Adding PDF to impose inputs: {}", path.display());
+                    self.impose_state.options.input_files.push(path);
+                    self.impose_state.needs_regeneration = true;
                 }
                 Mode::Flashcards if ext == "csv" => {
                     log::info!("Loading CSV: {}", path.display());

@@ -37,7 +37,13 @@ fn setup_fonts(ctx: &egui::Context) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn load_icon() -> egui::IconData {
-    let icon_bytes = include_bytes!("../assets/icon-256.png");
+    // macOS expects ~10% transparent margin around app icons so the system can
+    // size and shadow them correctly. Other platforms render the icon as-is.
+    #[cfg(target_os = "macos")]
+    let icon_bytes = include_bytes!("../assets/icon-256-mac.png").as_slice();
+    #[cfg(not(target_os = "macos"))]
+    let icon_bytes = include_bytes!("../assets/icon-256.png").as_slice();
+
     let img = image::load_from_memory(icon_bytes)
         .expect("Failed to load app icon")
         .into_rgba8();

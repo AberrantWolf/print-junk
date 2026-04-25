@@ -160,6 +160,18 @@ enum Commands {
         #[arg(long, default_value = "3.0", value_parser = non_negative_f32)]
         trim_allowance: f32,
 
+        /// Creep compensation mode
+        #[arg(long, default_value = "none", value_enum)]
+        creep_mode: CreepModeArg,
+
+        /// Creep per nested leaf layer in mm (used with --creep-mode per-layer)
+        #[arg(long, default_value = "0.1", value_parser = non_negative_f32)]
+        creep_per_layer: f32,
+
+        /// Paper caliper (thickness) in mm (used with --creep-mode from-caliper)
+        #[arg(long, default_value = "0.1", value_parser = non_negative_f32)]
+        paper_thickness: f32,
+
         /// Show statistics only, don't generate PDF
         #[arg(long)]
         stats_only: bool,
@@ -184,6 +196,13 @@ enum Commands {
         #[arg(long, default_value = "long-edge", value_enum)]
         cascade_flip: FlipArg,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum CreepModeArg {
+    None,
+    PerLayer,
+    FromCaliper,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -410,6 +429,9 @@ async fn main() -> Result<()> {
             leaf_top_margin,
             leaf_bottom_margin,
             trim_allowance,
+            creep_mode,
+            creep_per_layer,
+            paper_thickness,
             stats_only,
             cascade_cols,
             cascade_rows,
@@ -417,6 +439,16 @@ async fn main() -> Result<()> {
             cascade_cut_lines,
             cascade_flip,
         } => {
+            let creep = match creep_mode {
+                CreepModeArg::None => pdf_impose::CreepConfig::None,
+                CreepModeArg::PerLayer => pdf_impose::CreepConfig::PerLayer {
+                    creep_per_layer_mm: creep_per_layer,
+                },
+                CreepModeArg::FromCaliper => pdf_impose::CreepConfig::FromCaliper {
+                    paper_thickness_mm: paper_thickness,
+                },
+            };
+
             let cascade = if cascade_cols > 1 || cascade_rows > 1 {
                 Some(pdf_impose::CascadeConfig {
                     cols: cascade_cols,
@@ -471,6 +503,7 @@ async fn main() -> Result<()> {
                     kettle_offset_mm: kettle_offset,
                 },
                 cascade,
+                creep,
                 ..Default::default()
             };
 
