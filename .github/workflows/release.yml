@@ -108,7 +108,7 @@ jobs:
           install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/pdf-tools-gui"
 
           GUI_ARCHIVE="PDF-Tools-${VERSION}-${{ matrix.display_name }}.zip"
-          ditto -c -k --sequesterRsrc "$APP" "$GUI_ARCHIVE"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$GUI_ARCHIVE"
           echo "GUI_ARCHIVE=${GUI_ARCHIVE}" >> "$GITHUB_ENV"
 
       - name: Package GUI (Linux AppImage)
