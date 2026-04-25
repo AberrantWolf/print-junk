@@ -81,6 +81,9 @@ pub fn build_sheet_slots(
         pages_per_sheet,
     );
 
+    let total_page_cols = arrangement.grid_dimensions().0;
+    let spreads_per_row = total_page_cols / 2;
+
     let mut slots = Vec::with_capacity(order.len());
     for (spread_idx, pair) in order.chunks(2).enumerate() {
         let spread_pos = &spreads[spread_idx];
@@ -93,15 +96,16 @@ pub fn build_sheet_slots(
         let verso_sig_idx = remap[pair[0]];
         let recto_sig_idx = remap[pair[1]];
 
+        // Page-col indices of this spread's two slots on the sheet.
+        let spread_col_in_row = spread_idx % spreads_per_row;
+        let verso_col = 2 * spread_col_in_row;
+        let recto_col = verso_col + 1;
+
         slots.push(SheetSlot {
             rect: verso_rect,
             rotated: spread_pos.rotated,
             leaf_depth: verso_sig_idx / 2,
-            // Verso is the left half of a press spread; the spine fold is the
-            // shared center line, which sits on the verso slot's right edge.
-            // Rotation does not move physical positions (see the leaf-pair
-            // rule note), so this holds for top-row octavo as well.
-            spine_edge: Edge::Right,
+            spine_edge: spine_edge_for_col(verso_col, total_page_cols),
             source_page: filter_in_range(position.sig_start + verso_sig_idx, total_source_pages),
         });
 
@@ -109,7 +113,7 @@ pub fn build_sheet_slots(
             rect: recto_rect,
             rotated: spread_pos.rotated,
             leaf_depth: recto_sig_idx / 2,
-            spine_edge: Edge::Left,
+            spine_edge: spine_edge_for_col(recto_col, total_page_cols),
             source_page: filter_in_range(position.sig_start + recto_sig_idx, total_source_pages),
         });
     }
@@ -119,6 +123,36 @@ pub fn build_sheet_slots(
 
 fn filter_in_range(idx: usize, total: usize) -> Option<usize> {
     if idx < total { Some(idx) } else { None }
+}
+
+/// Determine the spine-fold edge of a cell at page-col `col` within an
+/// arrangement that has `total_cols` page-cols across the sheet.
+///
+/// The spine fold sits at the central col boundary (between cols `half - 1`
+/// and `half` where `half = total_cols / 2`). Cells directly adjacent to that
+/// fold get their spine on the side that faces the fold. Cells further away
+/// have additional vertical folds (the tail-cut fold in octavo) between them
+/// and the spine; each such fold inverts the direction, because the fold
+/// physically wraps that cell around to the opposite side of the bound stack.
+///
+/// Examples:
+/// - Folio / quarto (`total_cols = 2`): each cell is adjacent to the spine.
+///   Col 0 → `Right`, col 1 → `Left`.
+/// - Octavo (`total_cols = 4`): cols 1 and 2 are adjacent (`spine_edge`
+///   points inward); cols 0 and 3 are separated by one tail-cut fold each, so
+///   their `spine_edge` is inverted (col 0 → `Left`, col 3 → `Right`).
+fn spine_edge_for_col(col: usize, total_cols: usize) -> Edge {
+    let half = total_cols / 2;
+    let (toward, dist) = if col < half {
+        (Edge::Right, half - 1 - col)
+    } else {
+        (Edge::Left, col - half)
+    };
+    if dist.is_multiple_of(2) {
+        toward
+    } else {
+        toward.opposite()
+    }
 }
 
 /// Compute the content rect inside a slot, given leaf margins and the cut
