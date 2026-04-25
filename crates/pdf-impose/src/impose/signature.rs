@@ -9,9 +9,8 @@ use super::cascade::{CascadeCell, render_cascade_page};
 use super::page_source::{PageSource, XObjectCache};
 use super::sheet::{create_sheet_xobject, generate_sheet_content, render_sheet_spreads};
 use crate::layout::{
-    SheetSide, SpreadSheetLayout, apply_page_assignments, assign_pages_to_spreads,
-    calculate_cut_edges, calculate_signature_count, calculate_spread_positions,
-    creep_offsets_for_face,
+    SheetPosition, SheetSide, SpreadSheetLayout, apply_page_assignments, assign_pages_to_spreads,
+    build_sheet_slots, calculate_cut_edges, calculate_signature_count, calculate_spread_positions,
 };
 use crate::options::ImpositionOptions;
 use crate::types::Result;
@@ -65,18 +64,25 @@ pub(crate) fn impose_signature_binding(
             );
 
             for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
-                let front_creep = creep_offsets_for_face(
-                    options.creep,
-                    arrangement,
+                let position = SheetPosition {
                     sheet_idx,
-                    options.sheets_per_signature,
+                    sheets_per_signature: options.sheets_per_signature,
+                    sig_start,
+                };
+                let front_slots = build_sheet_slots(
+                    arrangement,
+                    leaf_bounds,
+                    &options.margins.leaf,
+                    position,
+                    total_pages,
                     SheetSide::Front,
                 );
-                let back_creep = creep_offsets_for_face(
-                    options.creep,
+                let back_slots = build_sheet_slots(
                     arrangement,
-                    sheet_idx,
-                    options.sheets_per_signature,
+                    leaf_bounds,
+                    &options.margins.leaf,
+                    position,
+                    total_pages,
                     SheetSide::Back,
                 );
 
@@ -90,6 +96,7 @@ pub(crate) fn impose_signature_binding(
                 let front_content = generate_sheet_content(
                     &mut output,
                     page_source,
+                    &front_slots,
                     &front_layout,
                     &cut_edges,
                     options,
@@ -97,7 +104,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
-                    &front_creep,
+                    options.creep,
                 )?;
                 let front_xobject =
                     create_sheet_xobject(&mut output, front_content, cell_width_pt, cell_height_pt);
@@ -112,6 +119,7 @@ pub(crate) fn impose_signature_binding(
                 let back_content = generate_sheet_content(
                     &mut output,
                     page_source,
+                    &back_slots,
                     &back_layout,
                     &cut_edges,
                     options,
@@ -119,7 +127,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
-                    &back_creep,
+                    options.creep,
                 )?;
                 let back_xobject =
                     create_sheet_xobject(&mut output, back_content, cell_width_pt, cell_height_pt);
@@ -179,18 +187,25 @@ pub(crate) fn impose_signature_binding(
             );
 
             for (sheet_idx, sheet_assignment) in sheet_assignments.iter().enumerate() {
-                let front_creep = creep_offsets_for_face(
-                    options.creep,
-                    arrangement,
+                let position = SheetPosition {
                     sheet_idx,
-                    options.sheets_per_signature,
+                    sheets_per_signature: options.sheets_per_signature,
+                    sig_start,
+                };
+                let front_slots = build_sheet_slots(
+                    arrangement,
+                    leaf_bounds,
+                    &options.margins.leaf,
+                    position,
+                    total_pages,
                     SheetSide::Front,
                 );
-                let back_creep = creep_offsets_for_face(
-                    options.creep,
+                let back_slots = build_sheet_slots(
                     arrangement,
-                    sheet_idx,
-                    options.sheets_per_signature,
+                    leaf_bounds,
+                    &options.margins.leaf,
+                    position,
+                    total_pages,
                     SheetSide::Back,
                 );
 
@@ -205,6 +220,7 @@ pub(crate) fn impose_signature_binding(
                 let front_page_id = render_sheet_spreads(
                     &mut output,
                     page_source,
+                    &front_slots,
                     &front_layout,
                     &cut_edges,
                     cell_width_pt,
@@ -215,7 +231,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
-                    &front_creep,
+                    options.creep,
                 )?;
                 page_refs.push(Object::Reference(front_page_id));
 
@@ -230,6 +246,7 @@ pub(crate) fn impose_signature_binding(
                 let back_page_id = render_sheet_spreads(
                     &mut output,
                     page_source,
+                    &back_slots,
                     &back_layout,
                     &cut_edges,
                     cell_width_pt,
@@ -240,7 +257,7 @@ pub(crate) fn impose_signature_binding(
                     num_signatures,
                     sheet_idx,
                     &mut xobject_cache,
-                    &back_creep,
+                    options.creep,
                 )?;
                 page_refs.push(Object::Reference(back_page_id));
             }

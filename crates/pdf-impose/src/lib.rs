@@ -10,7 +10,7 @@ mod types;
 
 pub use impose::{PageSource, XObjectCache, impose, load_multiple_pdfs, load_pdf, save_pdf};
 pub use layout::{
-    PagePlacement, PageSide, Rect, SheetLayout, SheetSide, SignatureSlot, max_creep_offset_mm,
+    Edge, PagePlacement, Rect, SheetLayout, SheetSide, SheetSlot, max_creep_offset_mm,
 };
 pub use options::*;
 pub use preview::{PreviewResult, generate_preview};
