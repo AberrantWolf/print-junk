@@ -36,8 +36,8 @@ fn pos(sheet_idx: usize, sheets_per_signature: usize, sig_start: usize) -> Sheet
 
 #[test]
 fn folio_single_sheet_front_slots() {
-    // Front order [3, 0]: verso=page 4 (sig idx 3 → depth 1),
-    // recto=page 1 (sig idx 0 → depth 0).
+    // Front order [3, 0]: verso=page 4 (leaf 1), recto=page 1 (leaf 0).
+    // Single-sheet folio has 2 leaves total; both are "covers" at depth 0.
     let slots = build_sheet_slots(
         PageArrangement::Folio,
         unit_leaf_bounds(),
@@ -49,7 +49,7 @@ fn folio_single_sheet_front_slots() {
 
     assert_eq!(slots.len(), 2);
     assert_eq!(slots[0].source_page, Some(3));
-    assert_eq!(slots[0].leaf_depth, 1);
+    assert_eq!(slots[0].leaf_depth, 0);
     assert_eq!(slots[0].spine_edge, Edge::Right);
     assert!(!slots[0].rotated);
 
@@ -70,9 +70,10 @@ fn quarto_single_sheet_front_depth_table() {
     );
 
     let depths: Vec<usize> = slots.iter().map(|s| s.leaf_depth).collect();
-    // Bottom spread (pages 8, 1): depths 3, 0.
-    // Top spread (pages 5, 4): depths 2, 1.
-    assert_eq!(depths, vec![3, 0, 2, 1]);
+    // Single-sheet quarto: 4 leaves, depths min(k, 3-k).
+    // Bottom spread (pages 8=leaf 3, 1=leaf 0): depths 0, 0 (both covers).
+    // Top spread (pages 5=leaf 2, 4=leaf 1): depths 1, 1 (innermost pair).
+    assert_eq!(depths, vec![0, 0, 1, 1]);
 }
 
 #[test]
@@ -157,13 +158,14 @@ fn octavo_single_sheet_front_depth_table() {
         SheetSide::Front,
     );
 
-    // Octavo front depth table from the page-order tables:
-    // BL [v=4, r=13] → 1, 6
-    // BR [v=16, r=1] → 7, 0
-    // TL [v=5, r=12] → 2, 5
-    // TR [v=9, r=8]  → 4, 3
+    // Single-sheet octavo: 8 leaves, depths min(k, 7-k):
+    //   leaf 0..7 → 0, 1, 2, 3, 3, 2, 1, 0
+    // BL [v=4=leaf 1, r=13=leaf 6] → 1, 1
+    // BR [v=16=leaf 7, r=1=leaf 0] → 0, 0
+    // TL [v=5=leaf 2, r=12=leaf 5] → 2, 2
+    // TR [v=9=leaf 4, r=8=leaf 3]  → 3, 3
     let depths: Vec<usize> = slots.iter().map(|s| s.leaf_depth).collect();
-    assert_eq!(depths, vec![1, 6, 7, 0, 2, 5, 4, 3]);
+    assert_eq!(depths, vec![1, 1, 0, 0, 2, 2, 3, 3]);
 }
 
 #[test]
@@ -190,9 +192,10 @@ fn octavo_top_row_slots_inherit_rotation() {
 
 #[test]
 fn back_face_uses_back_order() {
-    // Back order for folio is [1, 2]: verso=page 2 (sig idx 1 → depth 0),
-    // recto=page 3 (sig idx 2 → depth 1). Note this is the *reverse* of
-    // front, which proves we picked the back order rather than reusing front.
+    // Back order for folio is [1, 2]: verso=page 2 (leaf 0), recto=page 3
+    // (leaf 1). This is the *reverse* of front, proving we picked the back
+    // order rather than reusing front. Single-sheet folio has 2 leaves total,
+    // both at depth 0.
     let slots = build_sheet_slots(
         PageArrangement::Folio,
         unit_leaf_bounds(),
@@ -205,7 +208,7 @@ fn back_face_uses_back_order() {
     assert_eq!(slots[0].source_page, Some(1));
     assert_eq!(slots[0].leaf_depth, 0);
     assert_eq!(slots[1].source_page, Some(2));
-    assert_eq!(slots[1].leaf_depth, 1);
+    assert_eq!(slots[1].leaf_depth, 0);
 }
 
 #[test]
@@ -226,8 +229,11 @@ fn slots_blank_when_past_total_pages() {
 }
 
 #[test]
-fn two_sheet_folio_outer_sheet_carries_outer_and_inner_leaves() {
-    let slots = build_sheet_slots(
+fn two_sheet_folio_outer_sheet_both_leaves_at_depth_zero() {
+    // 2-sheet folio (4 leaves): sheet 0 carries leaf 0 (front cover, page 1)
+    // and leaf 3 (back cover, page 8). Both halves of the outermost physical
+    // sheet wrap the bundle together, so both are at depth 0.
+    let outer = build_sheet_slots(
         PageArrangement::Folio,
         unit_leaf_bounds(),
         &margins_zero_with_5mm_spine(),
@@ -235,11 +241,53 @@ fn two_sheet_folio_outer_sheet_carries_outer_and_inner_leaves() {
         8,
         SheetSide::Front,
     );
+    assert_eq!(
+        outer[0].leaf_depth, 0,
+        "verso of outer sheet (page 8 = leaf 3, back cover)"
+    );
+    assert_eq!(
+        outer[1].leaf_depth, 0,
+        "recto of outer sheet (page 1 = leaf 0, front cover)"
+    );
 
-    // Sheet 0 verso lands on signature index 7 (depth 3 — innermost leaf).
-    // Sheet 0 recto lands on signature index 0 (depth 0 — outermost leaf).
-    assert_eq!(slots[0].leaf_depth, 3, "verso of outer sheet = innermost");
-    assert_eq!(slots[1].leaf_depth, 0, "recto of outer sheet = outermost");
+    // Inner sheet carries the two centermost leaves (1, 2) — both at depth 1.
+    let inner = build_sheet_slots(
+        PageArrangement::Folio,
+        unit_leaf_bounds(),
+        &margins_zero_with_5mm_spine(),
+        pos(1, 2, 0),
+        8,
+        SheetSide::Front,
+    );
+    assert_eq!(inner[0].leaf_depth, 1, "verso of inner sheet");
+    assert_eq!(inner[1].leaf_depth, 1, "recto of inner sheet");
+}
+
+#[test]
+fn four_sheet_folio_depth_table() {
+    // 4-sheet folio (8 leaves): each physical sheet contributes a leaf-pair
+    // {k, 7-k}, both at depth k. This is the user-reported case.
+    let expected: Vec<(usize, [usize; 2])> = vec![
+        (0, [0, 0]), // pages 16, 1: leaves 7, 0
+        (1, [1, 1]), // pages 14, 3: leaves 6, 1
+        (2, [2, 2]), // pages 12, 5: leaves 5, 2
+        (3, [3, 3]), // pages 10, 7: leaves 4, 3
+    ];
+    for (sheet_idx, want) in expected {
+        let slots = build_sheet_slots(
+            PageArrangement::Folio,
+            unit_leaf_bounds(),
+            &margins_zero_with_5mm_spine(),
+            pos(sheet_idx, 4, 0),
+            16,
+            SheetSide::Front,
+        );
+        assert_eq!(
+            [slots[0].leaf_depth, slots[1].leaf_depth],
+            want,
+            "sheet {sheet_idx}: both slots should share creep depth"
+        );
+    }
 }
 
 // =============================================================================
