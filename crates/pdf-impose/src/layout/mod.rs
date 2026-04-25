@@ -15,8 +15,10 @@
 //! - `types` - Core data types
 
 pub mod arrangement;
+pub mod creep;
 pub mod page_order;
 pub mod placement;
+pub mod slots;
 pub mod spread;
 pub mod trim_bounds;
 pub mod types;
@@ -33,12 +35,16 @@ pub use page_order::{
 };
 
 // Re-export spread functions
-pub use spread::{
-    calculate_spread_content, create_folio_spread, create_octavo_spreads, create_quarto_spreads,
-};
+pub use spread::{create_folio_spread, create_octavo_spreads, create_quarto_spreads};
+
+// Re-export creep functions
+pub use creep::max_creep_offset_mm;
 
 // Re-export placement functions
-pub use placement::calculate_spread_placements;
+pub use placement::place_slots;
+
+// Re-export slot generation
+pub use slots::{SheetPosition, build_sheet_slots, slot_content_rect};
 
 // Re-export trim bounds types
 pub use trim_bounds::{TrimContentBounds, TrimMarkPositions, UnifiedTrimBounds};

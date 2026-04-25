@@ -112,7 +112,7 @@ fn main() {
     println!("cargo:warning=Downloading from {download_url}");
     download_file(&download_url, &temp_file);
 
-    let file_size = fs::metadata(&temp_file).map(|m| m.len()).unwrap_or(0);
+    let file_size = fs::metadata(&temp_file).map_or(0, |m| m.len());
     println!("cargo:warning=Downloaded {file_size} bytes");
 
     println!("cargo:warning=Extracting to {}", pdfium_dir.display());
@@ -188,19 +188,48 @@ fn generate_icons(workspace_root: &Path, manifest_dir: &Path) {
 
     let img = image::open(&source).expect("Failed to load source icon");
 
-    // Generate icon-256.png
-    let img_256 = img.resize_exact(256, 256, FilterType::Lanczos3);
-    img_256
+    // macOS expects ~10% transparent margin so the system can apply its
+    // automatic drop-shadow / Liquid Glass treatments and so the icon sits at
+    // the same visual size as its neighbors in the Dock and ⌘-Tab switcher.
+    // Windows and Linux render icons as-is, so they keep the full-bleed master.
+    let padded = pad_for_macos(&img);
+
+    // Full-bleed runtime icon — used by Linux/Windows window icons and copied
+    // into the Linux AppImage as the desktop icon.
+    img.resize_exact(256, 256, FilterType::Lanczos3)
         .save(&png_output)
         .expect("Failed to save icon-256.png");
 
-    // Generate icon.ico (multi-resolution: 16, 32, 48, 256)
+    // Padded runtime icon — used by macOS at `cargo run` time so the Dock icon
+    // sits at the right visual size during development.
+    padded
+        .resize_exact(256, 256, FilterType::Lanczos3)
+        .save(assets_dir.join("icon-256-mac.png"))
+        .expect("Failed to save icon-256-mac.png");
+
+    // Windows ICO (multi-resolution: 16, 32, 48, 256) — full-bleed.
     generate_ico(&img, &assets_dir.join("icon.ico"));
 
-    // Generate icon.icns (multi-resolution: 16, 32, 64, 128, 256)
-    generate_icns(&img, &assets_dir.join("icon.icns"));
+    // macOS ICNS — padded.
+    generate_icns(&padded, &assets_dir.join("icon.icns"));
 
     println!("cargo:warning=Icon assets generated successfully");
+}
+
+fn pad_for_macos(img: &image::DynamicImage) -> image::DynamicImage {
+    use image::imageops::FilterType;
+    use image::{Rgba, RgbaImage};
+
+    let canvas_size = img.width().max(img.height());
+    // Apple's icon grid: body fills ~824/1024 ≈ 80.5% of the canvas.
+    let body_size = (f64::from(canvas_size) * 0.805).round() as u32;
+    let body = img
+        .resize_exact(body_size, body_size, FilterType::Lanczos3)
+        .to_rgba8();
+    let mut canvas = RgbaImage::from_pixel(canvas_size, canvas_size, Rgba([0, 0, 0, 0]));
+    let offset = i64::from((canvas_size - body_size) / 2);
+    image::imageops::overlay(&mut canvas, &body, offset, offset);
+    image::DynamicImage::ImageRgba8(canvas)
 }
 
 fn generate_ico(img: &image::DynamicImage, output: &Path) {
@@ -258,12 +287,16 @@ fn generate_icns(img: &image::DynamicImage, output: &Path) {
     use icns::{IconFamily, IconType, Image as IcnsImage, PixelFormat};
     use image::imageops::FilterType;
 
+    // TODO: bump the master at res/icon.png to 1024×1024 and add
+    // RGBA32_256x256_2x (512) and RGBA32_512x512_2x (1024) entries for sharper
+    // rendering on retina Dock and Mission Control.
     let icon_types: &[(u32, IconType)] = &[
         (16, IconType::RGBA32_16x16),
         (32, IconType::RGBA32_32x32),
         (64, IconType::RGBA32_64x64),
         (128, IconType::RGBA32_128x128),
         (256, IconType::RGBA32_256x256),
+        (512, IconType::RGBA32_512x512),
     ];
 
     let mut family = IconFamily::new();

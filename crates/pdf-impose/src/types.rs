@@ -532,6 +532,43 @@ pub enum FlipAxis {
 }
 
 // =============================================================================
+// Creep Compensation
+// =============================================================================
+
+/// Creep (shingling) compensation configuration.
+///
+/// When multiple sheets are nested in a folded signature, inner sheets protrude
+/// at the fore edge due to paper thickness. After trimming, inner pages are
+/// narrower. Creep compensation shifts each page's content toward the spine
+/// proportionally to its nesting depth, so that after trimming all pages have
+/// visually consistent margins.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "mode"))]
+pub enum CreepConfig {
+    /// No creep compensation
+    #[default]
+    None,
+    /// User provides a fixed creep offset per nested leaf (pair of pages)
+    PerLayer {
+        /// Creep shift per layer, in mm (typically 0.05–0.2mm)
+        creep_per_layer_mm: f32,
+    },
+    /// Computed from paper caliper using fold geometry (π·t / 2 per layer)
+    FromCaliper {
+        /// Paper caliper (thickness of one sheet) in mm (e.g., 0.1 for 80gsm copy paper)
+        paper_thickness_mm: f32,
+    },
+}
+
+impl CreepConfig {
+    /// Returns true if creep compensation is enabled
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
+// =============================================================================
 // Output Splitting
 // =============================================================================
 
@@ -568,6 +605,8 @@ pub enum Warning {
     DefaultDimensionsUsed { page_index: usize },
     /// Flyleaves requested on a document with no pages (no effect)
     FlyleavesOnEmptyDocument,
+    /// Maximum creep offset exceeds the configured spine margin
+    CreepExceedsSpineMargin { max_creep_mm: f32, spine_mm: f32 },
     /// Generic warning
     Other(String),
 }
@@ -596,6 +635,14 @@ impl std::fmt::Display for Warning {
             Warning::FlyleavesOnEmptyDocument => {
                 write!(f, "Flyleaves requested but source document has no pages")
             }
+            Warning::CreepExceedsSpineMargin {
+                max_creep_mm,
+                spine_mm,
+            } => write!(
+                f,
+                "Maximum creep offset ({max_creep_mm:.2}mm) exceeds spine margin \
+                 ({spine_mm:.1}mm) — inner pages may cross the spine fold"
+            ),
             Warning::Other(msg) => write!(f, "{msg}"),
         }
     }

@@ -1,11 +1,11 @@
 use crate::constants::mm_to_pt;
-use crate::layout::Rect;
-use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
-use crate::layout::spread::calculate_spread_content;
+use crate::layout::arrangement::calculate_cut_edges;
+use crate::layout::slots::{SheetPosition, build_sheet_slots, slot_content_rect};
+use crate::layout::{Rect, SheetSide};
 use crate::types::{
-    BindingType, CascadeConfig, ImposeError, Margins, MarksAppearance, Orientation, OutputFormat,
-    PageArrangement, PaperSize, PrinterMarks, Result, Rotation, ScalingMode, SewingConfig,
-    SplitMode,
+    BindingType, CascadeConfig, CreepConfig, ImposeError, Margins, MarksAppearance, Orientation,
+    OutputFormat, PageArrangement, PaperSize, PrinterMarks, Result, Rotation, ScalingMode,
+    SewingConfig, SplitMode,
 };
 use std::path::PathBuf;
 
@@ -66,6 +66,10 @@ pub struct ImpositionOptions {
 
     // Cascade (tile multiple imposed sheets on a larger output page)
     pub cascade: Option<CascadeConfig>,
+
+    // Creep (shingling) compensation for folded signatures
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub creep: CreepConfig,
 }
 
 impl Default for ImpositionOptions {
@@ -91,6 +95,7 @@ impl Default for ImpositionOptions {
             split_mode: SplitMode::None,
             source_rotation: Rotation::None,
             cascade: None,
+            creep: CreepConfig::default(),
         }
     }
 }
@@ -248,6 +253,21 @@ impl ImpositionOptions {
             ));
         }
 
+        // Validate creep configuration
+        match self.creep {
+            CreepConfig::PerLayer { creep_per_layer_mm } if creep_per_layer_mm < 0.0 => {
+                return Err(ImposeError::Config(
+                    "Creep per layer must not be negative".to_string(),
+                ));
+            }
+            CreepConfig::FromCaliper { paper_thickness_mm } if paper_thickness_mm < 0.0 => {
+                return Err(ImposeError::Config(
+                    "Paper thickness must not be negative".to_string(),
+                ));
+            }
+            _ => {}
+        }
+
         // Validate output format compatibility with binding type
         if let (
             BindingType::PerfectBinding | BindingType::SideStitch | BindingType::Spiral,
@@ -304,13 +324,27 @@ impl ImpositionOptions {
             ));
         }
 
-        // Validate effective book page area through the full layout pipeline
-        let spread_positions =
-            calculate_spread_positions(self.page_arrangement, leaf_bounds, &self.margins.leaf);
+        // Validate effective book-page area through the slot pipeline.
+        // Building slots for one face is enough — every slot in an arrangement
+        // ends up the same size after margin/cut compensation, and we just
+        // need to confirm none collapse.
+        let position = SheetPosition {
+            sheet_idx: 0,
+            sheets_per_signature: self.sheets_per_signature.max(1),
+            sig_start: 0,
+        };
+        let slots = build_sheet_slots(
+            self.page_arrangement,
+            leaf_bounds,
+            &self.margins.leaf,
+            position,
+            self.page_arrangement.pages_per_sheet(),
+            SheetSide::Front,
+        );
         let cut_edges = calculate_cut_edges(self.page_arrangement);
-        for (spread, cuts) in spread_positions.iter().zip(cut_edges.iter()) {
-            let content = calculate_spread_content(spread, &self.margins.leaf, *cuts);
-            if !content.verso.is_valid() || !content.recto.is_valid() {
+        for (i, slot) in slots.iter().enumerate() {
+            let content = slot_content_rect(slot, &self.margins.leaf, cut_edges[i / 2]);
+            if !content.is_valid() {
                 return Err(ImposeError::Config(
                     "Margins are too large for the paper size and page arrangement".into(),
                 ));

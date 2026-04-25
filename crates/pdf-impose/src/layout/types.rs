@@ -211,25 +211,6 @@ impl SpreadCutEdges {
     }
 }
 
-/// Content areas for the two pages in a spread.
-///
-/// These are the final rectangles where page content is rendered,
-/// after applying all margins.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SpreadContentAreas {
-    /// Content area for the verso (left) page
-    pub verso: Rect,
-    /// Content area for the recto (right) page
-    pub recto: Rect,
-}
-
-impl SpreadContentAreas {
-    /// Create new spread content areas
-    pub fn new(verso: Rect, recto: Rect) -> Self {
-        Self { verso, recto }
-    }
-}
-
 /// A sheet side layout using the spread-based model.
 ///
 /// Contains all spread positions for one side of a physical sheet.
@@ -265,44 +246,8 @@ impl SpreadSheetLayout {
 }
 
 // =============================================================================
-// Page and Sheet Sides
+// Sheet Sides
 // =============================================================================
-
-/// Which side of a bound book this page appears on after folding
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum PageSide {
-    /// Right-hand page (odd page numbers in final book: 1, 3, 5, ...)
-    /// The spine edge is on the left
-    #[default]
-    Recto,
-    /// Left-hand page (even page numbers in final book: 2, 4, 6, ...)
-    /// The spine edge is on the right
-    Verso,
-}
-
-impl PageSide {
-    /// Returns true if this is a recto (right-hand) page
-    pub fn is_recto(self) -> bool {
-        matches!(self, PageSide::Recto)
-    }
-
-    /// Returns the opposite side
-    pub fn opposite(self) -> Self {
-        match self {
-            PageSide::Recto => PageSide::Verso,
-            PageSide::Verso => PageSide::Recto,
-        }
-    }
-
-    /// Get page side from 1-based page number
-    pub fn from_page_number(page_num: usize) -> Self {
-        if page_num % 2 == 1 {
-            PageSide::Recto // Odd pages are recto
-        } else {
-            PageSide::Verso // Even pages are verso
-        }
-    }
-}
 
 /// Which physical side of the printed sheet
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -326,90 +271,6 @@ impl SheetSide {
             SheetSide::Front => SheetSide::Back,
             SheetSide::Back => SheetSide::Front,
         }
-    }
-}
-
-// =============================================================================
-// Grid Position
-// =============================================================================
-
-/// Position within the grid (row, column)
-///
-/// Row 0 is the top row, column 0 is the leftmost column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct GridPosition {
-    /// Row index (0 = top row)
-    pub row: usize,
-    /// Column index (0 = leftmost column)
-    pub col: usize,
-}
-
-impl GridPosition {
-    /// Create a new grid position
-    pub const fn new(row: usize, col: usize) -> Self {
-        Self { row, col }
-    }
-
-    /// Convert to flat index in row-major order
-    pub fn to_index(self, cols: usize) -> usize {
-        self.row * cols + self.col
-    }
-
-    /// Create from flat index in row-major order
-    pub fn from_index(index: usize, cols: usize) -> Self {
-        Self {
-            row: index / cols,
-            col: index % cols,
-        }
-    }
-}
-
-// =============================================================================
-// Signature Slot
-// =============================================================================
-
-/// A page's position within a signature
-///
-/// This captures all the information needed to place a page correctly:
-/// - Where it goes in the grid
-/// - Whether it needs rotation
-/// - Which side of the book it will be on after folding
-#[derive(Debug, Clone, PartialEq)]
-pub struct SignatureSlot {
-    /// Index in the flat signature order (`0..pages_per_sig`)
-    pub slot_index: usize,
-    /// Which sheet side (front/back)
-    pub sheet_side: SheetSide,
-    /// Position in grid (row, col) - row 0 is top
-    pub grid_pos: GridPosition,
-    /// Whether this slot needs 180° rotation
-    pub rotated: bool,
-    /// Which book side this page will be on after folding
-    pub page_side: PageSide,
-}
-
-impl SignatureSlot {
-    /// Create a new signature slot
-    pub fn new(
-        slot_index: usize,
-        sheet_side: SheetSide,
-        row: usize,
-        col: usize,
-        rotated: bool,
-        page_side: PageSide,
-    ) -> Self {
-        Self {
-            slot_index,
-            sheet_side,
-            grid_pos: GridPosition::new(row, col),
-            rotated,
-            page_side,
-        }
-    }
-
-    /// Get rotation in degrees (0 or 180)
-    pub fn rotation_degrees(&self) -> f32 {
-        if self.rotated { 180.0 } else { 0.0 }
     }
 }
 
@@ -533,8 +394,6 @@ pub struct PagePlacement {
     pub rotation_degrees: f32,
     /// Scale factor applied to the source page
     pub scale: f32,
-    /// The signature slot this placement corresponds to
-    pub slot: SignatureSlot,
 }
 
 impl PagePlacement {
@@ -546,6 +405,81 @@ impl PagePlacement {
     /// Returns true if the page is rotated
     pub fn is_rotated(&self) -> bool {
         self.rotation_degrees.abs() > 0.1
+    }
+}
+
+// =============================================================================
+// Sheet Slots (per-page imposition unit)
+// =============================================================================
+
+/// One of the four edges of a rectangular slot.
+///
+/// Used to identify which edge of a [`SheetSlot`] is the spine fold (and, by
+/// derivation, which is the fore-edge). Concrete edge naming lets per-page
+/// operations like creep compensation reason about direction without the
+/// caller knowing about the slot's neighbors on the press sheet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+impl Edge {
+    /// The edge opposite this one (spine ↔ fore-edge, head ↔ tail).
+    pub fn opposite(self) -> Self {
+        match self {
+            Edge::Left => Edge::Right,
+            Edge::Right => Edge::Left,
+            Edge::Top => Edge::Bottom,
+            Edge::Bottom => Edge::Top,
+        }
+    }
+
+    /// True if this edge runs vertically (Left or Right).
+    pub fn is_vertical(self) -> bool {
+        matches!(self, Edge::Left | Edge::Right)
+    }
+}
+
+/// A single page slot on one face of one press sheet.
+///
+/// `SheetSlot` is what downstream consumers (placement, creep) actually need:
+/// a self-contained description of one page-sized region on the sheet. The
+/// verso and recto of a printed spread become two independent slots whose
+/// `spine_edge`s point at each other.
+///
+/// Slots carry pre-computed `leaf_depth` so that consumers never need to
+/// re-derive depth from page numbers — that re-derivation was the source of
+/// the original creep correctness bug, and exposing depth as a first-class
+/// field avoids it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SheetSlot {
+    /// Physical position on the press sheet, in PDF points.
+    pub rect: Rect,
+    /// Whether content should be rendered with 180° rotation.
+    pub rotated: bool,
+    /// Depth from the outermost leaf in this signature (0 = outermost).
+    /// Drives creep compensation magnitude.
+    pub leaf_depth: usize,
+    /// Which edge of `rect` is the spine fold. The fore-edge is
+    /// `spine_edge.opposite()`. Drives creep direction and per-slot margin
+    /// math.
+    pub spine_edge: Edge,
+    /// Source page index, or `None` for blank slots (padding / past EOF).
+    pub source_page: Option<usize>,
+}
+
+impl SheetSlot {
+    /// True if this slot has no source page (blank).
+    pub fn is_blank(&self) -> bool {
+        self.source_page.is_none()
+    }
+
+    /// Rotation in degrees (0 or 180), matching `PagePlacement::rotation_degrees`.
+    pub fn rotation_degrees(&self) -> f32 {
+        if self.rotated { 180.0 } else { 0.0 }
     }
 }
 

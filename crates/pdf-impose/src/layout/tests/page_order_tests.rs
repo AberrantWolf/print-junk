@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_folio_page_order() {
-    let (front, back) = folio_page_order();
+    let (front, back) = page_order_for_arrangement(PageArrangement::Folio);
 
     // Front: verso=4 (idx 3), recto=1 (idx 0)
     assert_eq!(front, vec![3, 0]);
@@ -44,12 +44,39 @@ fn test_folio_assignment_with_blanks() {
 
 #[test]
 fn test_quarto_page_order() {
-    let (front, back) = quarto_page_order();
+    let (front, back) = page_order_for_arrangement(PageArrangement::Quarto);
 
     // Front: [bottom: 8,1], [top: 5,4]
     assert_eq!(front, vec![7, 0, 4, 3]);
     // Back: [bottom: 2,7], [top: 3,6]
     assert_eq!(back, vec![1, 6, 2, 5]);
+}
+
+#[test]
+fn test_octavo_page_order() {
+    let (front, back) = page_order_for_arrangement(PageArrangement::Octavo);
+
+    // Front (bottom row + top row, top rotated):
+    //   BL [v=4, r=13], BR [v=16, r=1], TL [v=5, r=12], TR [v=9, r=8]
+    assert_eq!(front, vec![3, 12, 15, 0, 4, 11, 8, 7]);
+    // Back (mirror each row, step to leaf-mate):
+    //   BL [v=2, r=15], BR [v=14, r=3], TL [v=7, r=10], TR [v=11, r=6]
+    assert_eq!(back, vec![1, 14, 13, 2, 6, 9, 10, 5]);
+}
+
+#[test]
+fn test_derive_back_matches_known_tables() {
+    // Pin the derivation against the previously hand-derived back tables.
+    // If the leaf-pair flip rule changes, this test catches it before the
+    // assignment tests do.
+    for (arrangement, expected_back) in [
+        (PageArrangement::Folio, vec![1, 2]),
+        (PageArrangement::Quarto, vec![1, 6, 2, 5]),
+        (PageArrangement::Octavo, vec![1, 14, 13, 2, 6, 9, 10, 5]),
+    ] {
+        let (_, back) = page_order_for_arrangement(arrangement);
+        assert_eq!(back, expected_back, "arrangement={arrangement:?}");
+    }
 }
 
 #[test]
