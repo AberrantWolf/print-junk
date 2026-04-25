@@ -236,6 +236,7 @@ fn test_nonuniform_margins_placements_uniform_scale() {
         &margins,
         ScalingMode::Fit,
         SheetSide::Front,
+        &[],
     );
 
     assert_eq!(

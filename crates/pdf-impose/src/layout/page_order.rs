@@ -140,7 +140,7 @@ pub fn apply_page_assignments(
 ///
 /// Returns (`front_order`, `back_order`) where each is a flat array of
 /// 0-indexed page numbers in [verso, recto, verso, recto, ...] order.
-fn page_order_for_arrangement(arrangement: PageArrangement) -> (Vec<usize>, Vec<usize>) {
+pub(crate) fn page_order_for_arrangement(arrangement: PageArrangement) -> (Vec<usize>, Vec<usize>) {
     match arrangement {
         PageArrangement::Folio => folio_page_order(),
         PageArrangement::Quarto => quarto_page_order(),
@@ -225,7 +225,11 @@ fn octavo_page_order() -> (Vec<usize>, Vec<usize>) {
 /// - Second half (P/2..P) map to: `S*P - (i+1)*(P/2) + (j - P/2)`
 ///
 /// For a single-sheet signature (S=1), this is the identity mapping.
-fn build_nesting_remap(sheet_index: usize, sheets: usize, pages_per_sheet: usize) -> Vec<usize> {
+pub(crate) fn build_nesting_remap(
+    sheet_index: usize,
+    sheets: usize,
+    pages_per_sheet: usize,
+) -> Vec<usize> {
     let half = pages_per_sheet / 2;
     let total = sheets * pages_per_sheet;
 

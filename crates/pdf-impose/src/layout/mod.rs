@@ -15,6 +15,7 @@
 //! - `types` - Core data types
 
 pub mod arrangement;
+pub mod creep;
 pub mod page_order;
 pub mod placement;
 pub mod spread;
@@ -36,6 +37,9 @@ pub use page_order::{
 pub use spread::{
     calculate_spread_content, create_folio_spread, create_octavo_spreads, create_quarto_spreads,
 };
+
+// Re-export creep functions
+pub use creep::{SpreadCreepOffsets, creep_offsets_for_face, max_creep_offset_mm};
 
 // Re-export placement functions
 pub use placement::calculate_spread_placements;

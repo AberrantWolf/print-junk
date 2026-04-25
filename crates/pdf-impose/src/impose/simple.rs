@@ -72,6 +72,8 @@ pub(crate) fn impose_simple_binding(
 
             let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
 
+            // Simple binding (perfect/side-stitch/spiral) glues single leaves at
+            // the spine, so there is no fold geometry and creep is meaningless.
             let content = generate_sheet_content(
                 &mut output,
                 page_source,
@@ -82,6 +84,7 @@ pub(crate) fn impose_simple_binding(
                 1,
                 0,
                 &mut xobject_cache,
+                &[],
             )?;
             let xobject = create_sheet_xobject(&mut output, content, cell_width_pt, cell_height_pt);
 
@@ -145,6 +148,7 @@ pub(crate) fn impose_simple_binding(
 
             let layout = SpreadSheetLayout::new(SheetSide::Front, vec![spread_pos], leaf_bounds);
 
+            // No creep for simple binding: see comment in the cascade path above.
             let page_id = render_sheet_spreads(
                 &mut output,
                 page_source,
@@ -158,6 +162,7 @@ pub(crate) fn impose_simple_binding(
                 1,
                 0,
                 &mut xobject_cache,
+                &[],
             )?;
             page_refs.push(Object::Reference(page_id));
         }
