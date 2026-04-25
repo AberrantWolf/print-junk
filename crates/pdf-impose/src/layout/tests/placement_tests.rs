@@ -1,8 +1,8 @@
 use super::*;
-use crate::layout::arrangement::{calculate_cut_edges, calculate_spread_positions};
-use crate::layout::spread::calculate_spread_content;
-use crate::layout::{Point, SpreadCutEdges, SpreadPosition};
-use crate::types::{LeafMargins, PageArrangement};
+use crate::layout::SheetSide;
+use crate::layout::arrangement::calculate_cut_edges;
+use crate::layout::slots::{SheetPosition, build_sheet_slots, slot_content_rect};
+use crate::types::{CreepConfig, LeafMargins, PageArrangement};
 
 fn nonuniform_margins() -> LeafMargins {
     LeafMargins {
@@ -82,161 +82,42 @@ fn test_scale_zero_target_dimensions() {
 }
 
 // =============================================================================
-// Non-Uniform Margin Uniformity Tests
+// End-to-end placement scale uniformity
 // =============================================================================
 
-/// Within a single spread, verso and recto pages should have the same dimensions
-/// even when spine != `fore_edge` and top != bottom.
-#[test]
-fn test_nonuniform_margins_verso_recto_same_size() {
-    let spread_pos = SpreadPosition::empty(Point::new(0.0, 0.0), 600.0, 400.0, false, 0);
-    let margins = nonuniform_margins();
-
-    // Test with no cut edges
-    let content = calculate_spread_content(&spread_pos, &margins, SpreadCutEdges::none());
-    assert!(
-        (content.verso.width - content.recto.width).abs() < 0.01,
-        "Verso and recto widths should match: {} vs {}",
-        content.verso.width,
-        content.recto.width
-    );
-    assert!(
-        (content.verso.height - content.recto.height).abs() < 0.01,
-        "Verso and recto heights should match: {} vs {}",
-        content.verso.height,
-        content.recto.height
-    );
-
-    // Test with symmetric cut edges (both left and right)
-    let cuts = SpreadCutEdges {
-        top: true,
-        bottom: false,
-        left: true,
-        right: true,
-    };
-    let content = calculate_spread_content(&spread_pos, &margins, cuts);
-    assert!(
-        (content.verso.width - content.recto.width).abs() < 0.01,
-        "With symmetric cuts, verso and recto widths should match: {} vs {}",
-        content.verso.width,
-        content.recto.width
-    );
-    assert!(
-        (content.verso.height - content.recto.height).abs() < 0.01,
-        "With symmetric cuts, verso and recto heights should match",
-    );
-}
-
-/// In quarto (2 spreads stacked), all 4 page content areas should have the
-/// same dimensions despite different cut edge configurations per spread.
-#[test]
-fn test_nonuniform_margins_quarto_spreads_same_page_size() {
-    let leaf_bounds = Rect::new(0.0, 0.0, 800.0, 600.0);
-    let margins = nonuniform_margins();
-
-    let spreads = calculate_spread_positions(PageArrangement::Quarto, leaf_bounds, &margins);
-    let cut_edges = calculate_cut_edges(PageArrangement::Quarto);
-
-    let mut all_widths = Vec::new();
-    let mut all_heights = Vec::new();
-
-    for (spread, cuts) in spreads.iter().zip(cut_edges.iter()) {
-        let content = calculate_spread_content(spread, &margins, *cuts);
-        all_widths.push(content.verso.width);
-        all_widths.push(content.recto.width);
-        all_heights.push(content.verso.height);
-        all_heights.push(content.recto.height);
-    }
-
-    // All widths should be the same
-    let first_width = all_widths[0];
-    for (i, &w) in all_widths.iter().enumerate() {
-        assert!(
-            (w - first_width).abs() < 0.01,
-            "Quarto page {i} width {w} differs from first {first_width}"
-        );
-    }
-
-    // All heights should be the same
-    let first_height = all_heights[0];
-    for (i, &h) in all_heights.iter().enumerate() {
-        assert!(
-            (h - first_height).abs() < 0.01,
-            "Quarto page {i} height {h} differs from first {first_height}"
-        );
-    }
-}
-
-/// In octavo (4 spreads in 2x2), all 8 page content areas should have the
-/// same dimensions. The cut margin is applied symmetrically — when a spread
-/// has a vertical cut on either side, both pages get the cut margin on their
-/// fore-edge so all pages end up the same width.
-#[test]
-fn test_nonuniform_margins_octavo_spreads_same_page_size() {
-    let leaf_bounds = Rect::new(0.0, 0.0, 800.0, 600.0);
-    let margins = nonuniform_margins();
-
-    let spreads = calculate_spread_positions(PageArrangement::Octavo, leaf_bounds, &margins);
-    let cut_edges = calculate_cut_edges(PageArrangement::Octavo);
-
-    let mut all_widths = Vec::new();
-    let mut all_heights = Vec::new();
-
-    for (spread, cuts) in spreads.iter().zip(cut_edges.iter()) {
-        let content = calculate_spread_content(spread, &margins, *cuts);
-        all_widths.push(content.verso.width);
-        all_widths.push(content.recto.width);
-        all_heights.push(content.verso.height);
-        all_heights.push(content.recto.height);
-    }
-
-    let first_width = all_widths[0];
-    for (i, &w) in all_widths.iter().enumerate() {
-        assert!(
-            (w - first_width).abs() < 0.01,
-            "Octavo page {i} width {w} differs from first {first_width}"
-        );
-    }
-
-    let first_height = all_heights[0];
-    for (i, &h) in all_heights.iter().enumerate() {
-        assert!(
-            (h - first_height).abs() < 0.01,
-            "Octavo page {i} height {h} differs from first {first_height}"
-        );
-    }
-}
-
-/// End-to-end: uniform source pages through `calculate_spread_placements` with
-/// non-uniform margins should produce identical scale factors and content rect
-/// dimensions for all pages.
+/// Uniform source pages through `place_slots` with non-uniform margins should
+/// produce identical scale factors and content-rect dimensions for every page.
 #[test]
 fn test_nonuniform_margins_placements_uniform_scale() {
     let leaf_bounds = Rect::new(0.0, 0.0, 800.0, 600.0);
     let margins = nonuniform_margins();
 
-    // Use quarto as it has cut edges
+    // Quarto exercises both no-cut and cut edges.
     let arrangement = PageArrangement::Quarto;
-    let mut spreads = calculate_spread_positions(arrangement, leaf_bounds, &margins);
     let cut_edges = calculate_cut_edges(arrangement);
+    let slots = build_sheet_slots(
+        arrangement,
+        leaf_bounds,
+        &margins,
+        SheetPosition {
+            sheet_idx: 0,
+            sheets_per_signature: 1,
+            sig_start: 0,
+        },
+        8,
+        SheetSide::Front,
+    );
 
-    // Assign pages to spreads (8 pages for quarto)
-    for (i, spread) in spreads.iter_mut().enumerate() {
-        spread.spread.verso_page = Some(i * 2);
-        spread.spread.recto_page = Some(i * 2 + 1);
-    }
-
-    // All source pages are 612x792 (US Letter)
+    // All source pages are 612×792 (US Letter)
     let source_dims: Vec<(f32, f32)> = vec![(612.0, 792.0); 8];
 
-    let placements = calculate_spread_placements(
-        &spreads,
+    let placements = place_slots(
+        &slots,
         &cut_edges,
         &source_dims,
         &margins,
         ScalingMode::Fit,
-        SheetSide::Front,
-        &[],
+        CreepConfig::None,
     );
 
     assert_eq!(
@@ -252,24 +133,65 @@ fn test_nonuniform_margins_placements_uniform_scale() {
     for (i, p) in placements.iter().enumerate() {
         assert!(
             (p.scale - first_scale).abs() < 0.001,
-            "Placement {} scale {} differs from first {}",
-            i,
+            "Placement {i} scale {} differs from first {first_scale}",
             p.scale,
-            first_scale
         );
         assert!(
             (p.content_rect.width - first_width).abs() < 0.1,
-            "Placement {} width {} differs from first {}",
-            i,
+            "Placement {i} width {} differs from first {first_width}",
             p.content_rect.width,
-            first_width
         );
         assert!(
             (p.content_rect.height - first_height).abs() < 0.1,
-            "Placement {} height {} differs from first {}",
-            i,
+            "Placement {i} height {} differs from first {first_height}",
             p.content_rect.height,
-            first_height
+        );
+    }
+}
+
+// =============================================================================
+// Per-slot content-rect uniformity (replaces the old spread-content tests)
+// =============================================================================
+
+/// In quarto (2 spreads stacked), all 4 page content areas should have the
+/// same dimensions despite different cut-edge configurations per spread.
+#[test]
+fn test_nonuniform_margins_quarto_slots_same_page_size() {
+    let leaf_bounds = Rect::new(0.0, 0.0, 800.0, 600.0);
+    let margins = nonuniform_margins();
+
+    let slots = build_sheet_slots(
+        PageArrangement::Quarto,
+        leaf_bounds,
+        &margins,
+        SheetPosition {
+            sheet_idx: 0,
+            sheets_per_signature: 1,
+            sig_start: 0,
+        },
+        8,
+        SheetSide::Front,
+    );
+    let cut_edges = calculate_cut_edges(PageArrangement::Quarto);
+
+    let dims: Vec<(f32, f32)> = slots
+        .iter()
+        .enumerate()
+        .map(|(i, slot)| {
+            let r = slot_content_rect(slot, &margins, cut_edges[i / 2]);
+            (r.width, r.height)
+        })
+        .collect();
+
+    let (first_w, first_h) = dims[0];
+    for (i, &(w, h)) in dims.iter().enumerate() {
+        assert!(
+            (w - first_w).abs() < 0.01,
+            "Quarto slot {i} width {w} differs from first {first_w}"
+        );
+        assert!(
+            (h - first_h).abs() < 0.01,
+            "Quarto slot {i} height {h} differs from first {first_h}"
         );
     }
 }

@@ -1,89 +1,15 @@
-//! Spread layout calculation - the fundamental imposition unit
+//! Sheet partitioning into spread regions.
 //!
-//! A spread is the basic building block of book layout: two facing pages
-//! (verso on left, recto on right). All imposition arrangements are
-//! compositions of spreads:
+//! A spread is a piece of fold geometry: a region of the press sheet that
+//! becomes two facing pages after folding. This module places spread regions
+//! on a press sheet for each arrangement; per-page content rects (margins,
+//! cuts) are computed in [`super::slots`].
 //!
-//! - **Folio**: 1 spread
-//! - **Quarto**: 2 spreads stacked vertically (top rotated 180 degrees)
-//! - **Octavo**: 4 spreads in 2x2 grid (top row rotated 180 degrees)
-//!
-//! This module calculates content areas within spreads, applying margins
-//! correctly based on edge types (spine, fore-edge, cut lines).
+//! - **Folio**: 1 spread (no inner cuts)
+//! - **Quarto**: 2 spreads stacked vertically (top rotated 180°, head cut between)
+//! - **Octavo**: 4 spreads in 2×2 grid (top row rotated 180°, head + center cuts)
 
-use crate::constants::mm_to_pt;
-use crate::types::LeafMargins;
-
-use super::{Point, Rect, SpreadContentAreas, SpreadCutEdges, SpreadPosition};
-
-// =============================================================================
-// Spread Content Calculation
-// =============================================================================
-
-/// Calculate content areas for both pages in a spread.
-///
-/// This is the core layout function that determines where page content
-/// goes within a spread, accounting for:
-/// - Spine margin (gutter between facing pages)
-/// - Fore-edge margin (outer edge of pages)
-/// - Top/bottom margins
-/// - Cut margins (extra space at cut lines)
-///
-/// # Arguments
-/// * `spread_pos` - Position and size of the spread on the sheet
-/// * `margins` - Leaf margin configuration
-/// * `cut_edges` - Which edges have cut lines (need cut margin)
-///
-/// # Returns
-/// Content rectangles for verso (left) and recto (right) pages.
-pub fn calculate_spread_content(
-    spread_pos: &SpreadPosition,
-    margins: &LeafMargins,
-    cut_edges: SpreadCutEdges,
-) -> SpreadContentAreas {
-    let half_width = spread_pos.width / 2.0;
-
-    // Convert margins to points
-    let spine_pt = mm_to_pt(margins.spine_mm);
-    let fore_edge_pt = mm_to_pt(margins.fore_edge_mm);
-    let top_pt = mm_to_pt(margins.top_mm);
-    let bottom_pt = mm_to_pt(margins.bottom_mm);
-    let cut_pt = mm_to_pt(margins.trim_allowance_mm);
-
-    // Calculate horizontal margins for each page
-    // Verso (left page): fore-edge on left, spine on right
-    // Recto (right page): spine on left, fore-edge on right
-    //
-    // When a spread has a vertical cut on either side (octavo), apply cut margin
-    // to BOTH pages' fore-edges so all pages end up the same width. Without this,
-    // the page adjacent to the cut would be narrower, causing uneven content scaling
-    // across the finished book.
-    let has_vertical_cut = cut_edges.left || cut_edges.right;
-    let verso_left = fore_edge_pt + if has_vertical_cut { cut_pt } else { 0.0 };
-    let verso_right = spine_pt;
-    let recto_left = spine_pt;
-    let recto_right = fore_edge_pt + if has_vertical_cut { cut_pt } else { 0.0 };
-
-    // Calculate vertical margins (add cut margin where there are cuts)
-    let top_margin = top_pt + if cut_edges.top { cut_pt } else { 0.0 };
-    let bottom_margin = bottom_pt + if cut_edges.bottom { cut_pt } else { 0.0 };
-
-    // Calculate page dimensions
-    let page_height = spread_pos.height - top_margin - bottom_margin;
-    let verso_width = half_width - verso_left - verso_right;
-    let recto_width = half_width - recto_left - recto_right;
-
-    // Calculate page positions
-    // In PDF coordinates, y=0 is at the bottom
-    let verso_x = spread_pos.origin.x + verso_left;
-    let recto_x = spread_pos.origin.x + half_width + recto_left;
-    let page_y = spread_pos.origin.y + bottom_margin;
-
-    SpreadContentAreas {
-        verso: Rect::new(verso_x, page_y, verso_width, page_height),
-        recto: Rect::new(recto_x, page_y, recto_width, page_height),
-    }
-}
+use super::{Point, Rect, SpreadPosition};
 
 /// Create a spread position for a folio (single spread) arrangement.
 ///
