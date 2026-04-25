@@ -76,6 +76,77 @@ fn quarto_single_sheet_front_depth_table() {
 }
 
 #[test]
+fn folio_spine_edges_point_at_each_other() {
+    let slots = build_sheet_slots(
+        PageArrangement::Folio,
+        unit_leaf_bounds(),
+        &margins_zero_with_5mm_spine(),
+        pos(0, 1, 0),
+        4,
+        SheetSide::Front,
+    );
+    // The single fold is the spine; both cells border it.
+    assert_eq!(slots[0].spine_edge, Edge::Right);
+    assert_eq!(slots[1].spine_edge, Edge::Left);
+}
+
+#[test]
+fn quarto_spine_edges_point_at_each_other() {
+    let slots = build_sheet_slots(
+        PageArrangement::Quarto,
+        unit_leaf_bounds(),
+        &margins_zero_with_5mm_spine(),
+        pos(0, 1, 0),
+        8,
+        SheetSide::Front,
+    );
+    // Quarto: 1 vertical fold (the spine). Same cell-to-spine relationship
+    // as folio, applied to each row.
+    let edges: Vec<Edge> = slots.iter().map(|s| s.spine_edge).collect();
+    assert_eq!(
+        edges,
+        vec![Edge::Right, Edge::Left, Edge::Right, Edge::Left]
+    );
+}
+
+#[test]
+fn octavo_spine_edges_invert_outside_the_tail_cut() {
+    // Octavo has 2 vertical folds: the central spine fold (between cols 1
+    // and 2) and the tail-cut fold at cols 0/1 and 2/3. Cells separated from
+    // the spine by the tail-cut fold (cols 0 and 3) get their spine_edge
+    // inverted. Pattern across the 4 page-cols:
+    //   col 0 → Left  (sheet-left wraps via tail-cut to spine)
+    //   col 1 → Right (cell's right is the spine fold)
+    //   col 2 → Left  (cell's left is the spine fold)
+    //   col 3 → Right (sheet-right wraps via tail-cut to spine)
+    let slots = build_sheet_slots(
+        PageArrangement::Octavo,
+        unit_leaf_bounds(),
+        &margins_zero_with_5mm_spine(),
+        pos(0, 1, 0),
+        16,
+        SheetSide::Front,
+    );
+    let edges: Vec<Edge> = slots.iter().map(|s| s.spine_edge).collect();
+    // Spread order is BL, BR, TL, TR — so slots are
+    // [BL_v, BL_r, BR_v, BR_r, TL_v, TL_r, TR_v, TR_r]
+    // Mapped to page-cols: [0, 1, 2, 3, 0, 1, 2, 3].
+    assert_eq!(
+        edges,
+        vec![
+            Edge::Left,  // col 0 (BL verso)
+            Edge::Right, // col 1 (BL recto)
+            Edge::Left,  // col 2 (BR verso)
+            Edge::Right, // col 3 (BR recto)
+            Edge::Left,  // col 0 (TL verso, top row, rotated — but spine is press-sheet geometry)
+            Edge::Right, // col 1 (TL recto)
+            Edge::Left,  // col 2 (TR verso)
+            Edge::Right, // col 3 (TR recto)
+        ]
+    );
+}
+
+#[test]
 fn octavo_single_sheet_front_depth_table() {
     let slots = build_sheet_slots(
         PageArrangement::Octavo,
