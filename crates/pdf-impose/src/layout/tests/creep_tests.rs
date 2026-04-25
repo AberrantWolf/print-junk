@@ -30,6 +30,7 @@ fn default_margins() -> LeafMargins {
 
 #[test]
 fn test_max_creep_innermost_leaf() {
+    // Max depth is the centermost leaf-pair: depth = (total_leaves - 1) / 2.
     let creep = CreepConfig::PerLayer {
         creep_per_layer_mm: 0.1,
     };
@@ -42,7 +43,7 @@ fn test_max_creep_innermost_leaf() {
         (PageArrangement::Octavo, 2),
     ] {
         let total_leaves = sheets * arr.pages_per_sheet() / 2;
-        let expected = (total_leaves - 1) as f32 * 0.1;
+        let expected = ((total_leaves - 1) / 2) as f32 * 0.1;
         let actual = max_creep_offset_mm(creep, arr, sheets);
         assert!(
             (actual - expected).abs() < f32::EPSILON,
@@ -71,11 +72,13 @@ fn test_max_creep_none_is_zero() {
 
 #[test]
 fn test_max_creep_from_caliper_uses_pi_over_two_factor() {
-    // Single-sheet folio: max depth = 1. π·t/2 per layer = π·0.1/2 mm.
+    // Single-sheet quarto: 4 leaves, max depth = (4-1)/2 = 1. π·t/2 per
+    // layer = π·0.1/2 mm. (Single-sheet folio has only 2 leaves, both at
+    // depth 0, so it would yield 0 — not useful for this assertion.)
     let creep = CreepConfig::FromCaliper {
         paper_thickness_mm: 0.1,
     };
-    let actual = max_creep_offset_mm(creep, PageArrangement::Folio, 1);
+    let actual = max_creep_offset_mm(creep, PageArrangement::Quarto, 1);
     let expected = std::f32::consts::PI * 0.1 / 2.0;
     assert!(
         (actual - expected).abs() < 1e-6,
@@ -89,12 +92,15 @@ fn test_max_creep_from_caliper_uses_pi_over_two_factor() {
 
 #[test]
 fn test_creep_shifts_verso_right_recto_left() {
-    // Folio single sheet: verso (depth 1) shifts right; recto (depth 0) doesn't shift.
+    // Quarto single sheet: verso (page 8, leaf 3 → depth 0) doesn't shift;
+    // recto (page 1, leaf 0 → depth 0) doesn't shift; but the *top* spread's
+    // verso (page 5, leaf 2 → depth 1) shifts right; recto (page 4, leaf 1 →
+    // depth 1) shifts left. Verifies direction: toward `spine_edge`.
     let leaf_bounds = Rect::new(0.0, 0.0, 800.0, 600.0);
     let margins = default_margins();
-    let cut_edges = calculate_cut_edges(PageArrangement::Folio);
+    let cut_edges = calculate_cut_edges(PageArrangement::Quarto);
     let slots = build_sheet_slots(
-        PageArrangement::Folio,
+        PageArrangement::Quarto,
         leaf_bounds,
         &margins,
         SheetPosition {
@@ -102,10 +108,10 @@ fn test_creep_shifts_verso_right_recto_left() {
             sheets_per_signature: 1,
             sig_start: 0,
         },
-        4,
+        8,
         SheetSide::Front,
     );
-    let source_dims = vec![(612.0, 792.0); 4];
+    let source_dims = vec![(612.0, 792.0); 8];
 
     let no_creep = place_slots(
         &slots,
@@ -126,19 +132,31 @@ fn test_creep_shifts_verso_right_recto_left() {
         },
     );
 
-    // Verso (slot 0, leaf_depth 1, spine_edge Right): shift right by 0.5 mm.
-    let verso_delta = with_creep[0].content_rect.x - no_creep[0].content_rect.x;
-    let expected = mm_to_pt(0.5);
+    // Bottom spread (slots 0, 1): both leaves are covers, depth 0 → no shift.
+    let bot_v_delta = with_creep[0].content_rect.x - no_creep[0].content_rect.x;
+    let bot_r_delta = with_creep[1].content_rect.x - no_creep[1].content_rect.x;
     assert!(
-        (verso_delta - expected).abs() < 0.001,
-        "verso should shift right by {expected}, got {verso_delta}"
+        bot_v_delta.abs() < 0.001,
+        "bottom verso depth 0: {bot_v_delta}"
+    );
+    assert!(
+        bot_r_delta.abs() < 0.001,
+        "bottom recto depth 0: {bot_r_delta}"
     );
 
-    // Recto (slot 1, leaf_depth 0): no shift at depth 0.
-    let recto_delta = with_creep[1].content_rect.x - no_creep[1].content_rect.x;
+    // Top spread (slots 2, 3): inner leaves, depth 1.
+    // Top verso (spine_edge Right): shifts right by +0.5 mm.
+    let top_v_delta = with_creep[2].content_rect.x - no_creep[2].content_rect.x;
+    let expected = mm_to_pt(0.5);
     assert!(
-        recto_delta.abs() < 0.001,
-        "recto at depth 0 should not shift, got {recto_delta}"
+        (top_v_delta - expected).abs() < 0.001,
+        "top verso should shift +{expected}, got {top_v_delta}"
+    );
+    // Top recto (spine_edge Left): shifts left by 0.5 mm (negative delta).
+    let top_r_delta = with_creep[3].content_rect.x - no_creep[3].content_rect.x;
+    assert!(
+        (top_r_delta + expected).abs() < 0.001,
+        "top recto should shift -{expected}, got {top_r_delta}"
     );
 }
 
@@ -194,11 +212,13 @@ fn test_creep_does_not_change_scale_or_size() {
 }
 
 #[test]
-fn test_outer_sheet_verso_shifts_most_in_multi_sheet_folio() {
-    // Headline property: in a nested N-sheet folio signature, the outermost
-    // printed sheet's verso side carries the innermost leaf of the signature,
-    // so its verso shift is the maximum. This is the inverse of naive
-    // "outer sheet = no shift" reasoning.
+fn test_inner_sheets_shift_more_than_outer_in_multi_sheet_folio() {
+    // In a nested N-sheet folio, the *outermost* physical sheet wraps the
+    // bundle and its leaves sit at depth 0 (no shift). Each inner sheet adds a
+    // layer of paper at the spine fold, increasing fore-edge protrusion of the
+    // leaves it carries — so creep shift grows monotonically from outer to
+    // innermost sheet. Both verso and recto on the *same* sheet receive the
+    // same shift (the two halves are mirrored around the spine fold).
     let leaf_bounds = Rect::new(0.0, 0.0, 800.0, 600.0);
     let margins = default_margins();
     let cut_edges = calculate_cut_edges(PageArrangement::Folio);
@@ -208,6 +228,7 @@ fn test_outer_sheet_verso_shifts_most_in_multi_sheet_folio() {
     };
 
     let mut verso_x = Vec::new();
+    let mut recto_x = Vec::new();
     for sheet_idx in 0..3 {
         let slots = build_sheet_slots(
             PageArrangement::Folio,
@@ -230,16 +251,72 @@ fn test_outer_sheet_verso_shifts_most_in_multi_sheet_folio() {
             creep,
         );
         verso_x.push(placements[0].content_rect.x);
+        recto_x.push(placements[1].content_rect.x);
     }
 
+    // Verso (spine on right): shifts right (larger x) as sheet goes inward.
     assert!(
-        verso_x[0] > verso_x[1],
-        "sheet 0 verso should shift more than sheet 1: {verso_x:?}"
+        verso_x[2] > verso_x[1] && verso_x[1] > verso_x[0],
+        "innermost sheet's verso should shift most: {verso_x:?}"
     );
+    // Recto (spine on left): shifts left (smaller x) as sheet goes inward.
     assert!(
-        verso_x[1] > verso_x[2],
-        "sheet 1 verso should shift more than sheet 2: {verso_x:?}"
+        recto_x[2] < recto_x[1] && recto_x[1] < recto_x[0],
+        "innermost sheet's recto should shift most: {recto_x:?}"
     );
+}
+
+#[test]
+fn test_folio_verso_and_recto_on_same_sheet_share_depth() {
+    // Both halves of a physical folio sheet are at the same nesting depth, so
+    // they receive equal-magnitude shifts toward their respective spine edges.
+    // Regression for the user-reported asymmetry on 4-sheet folios.
+    let leaf_bounds = Rect::new(0.0, 0.0, 800.0, 600.0);
+    let margins = default_margins();
+    let cut_edges = calculate_cut_edges(PageArrangement::Folio);
+    let source_dims = vec![(612.0, 792.0); 16];
+    let creep = CreepConfig::PerLayer {
+        creep_per_layer_mm: 2.0,
+    };
+
+    for sheet_idx in 0..4 {
+        let slots = build_sheet_slots(
+            PageArrangement::Folio,
+            leaf_bounds,
+            &margins,
+            SheetPosition {
+                sheet_idx,
+                sheets_per_signature: 4,
+                sig_start: 0,
+            },
+            16,
+            SheetSide::Front,
+        );
+        let no_creep = place_slots(
+            &slots,
+            &cut_edges,
+            &source_dims,
+            &margins,
+            ScalingMode::Fit,
+            CreepConfig::None,
+        );
+        let with_creep = place_slots(
+            &slots,
+            &cut_edges,
+            &source_dims,
+            &margins,
+            ScalingMode::Fit,
+            creep,
+        );
+
+        // Verso shifts right (positive Δx); recto shifts left (negative Δx).
+        let verso_delta = with_creep[0].content_rect.x - no_creep[0].content_rect.x;
+        let recto_delta = with_creep[1].content_rect.x - no_creep[1].content_rect.x;
+        assert!(
+            (verso_delta + recto_delta).abs() < 0.001,
+            "sheet {sheet_idx}: verso & recto deltas should be equal/opposite, got verso={verso_delta} recto={recto_delta}"
+        );
+    }
 }
 
 #[test]

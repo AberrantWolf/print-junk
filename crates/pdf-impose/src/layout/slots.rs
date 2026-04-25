@@ -101,10 +101,12 @@ pub fn build_sheet_slots(
         let verso_col = 2 * spread_col_in_row;
         let recto_col = verso_col + 1;
 
+        let total_leaves = position.sheets_per_signature * pages_per_sheet / 2;
+
         slots.push(SheetSlot {
             rect: verso_rect,
             rotated: spread_pos.rotated,
-            leaf_depth: verso_sig_idx / 2,
+            leaf_depth: leaf_creep_depth(verso_sig_idx, total_leaves),
             spine_edge: spine_edge_for_col(verso_col, total_page_cols),
             source_page: filter_in_range(position.sig_start + verso_sig_idx, total_source_pages),
         });
@@ -112,7 +114,7 @@ pub fn build_sheet_slots(
         slots.push(SheetSlot {
             rect: recto_rect,
             rotated: spread_pos.rotated,
-            leaf_depth: recto_sig_idx / 2,
+            leaf_depth: leaf_creep_depth(recto_sig_idx, total_leaves),
             spine_edge: spine_edge_for_col(recto_col, total_page_cols),
             source_page: filter_in_range(position.sig_start + recto_sig_idx, total_source_pages),
         });
@@ -123,6 +125,24 @@ pub fn build_sheet_slots(
 
 fn filter_in_range(idx: usize, total: usize) -> Option<usize> {
     if idx < total { Some(idx) } else { None }
+}
+
+/// Fore-edge creep depth of the leaf containing `sig_page_idx`.
+///
+/// Creep at the fore-edge is driven by how many paper layers wrap around this
+/// leaf at the spine. In a folded N-sheet signature with `total_leaves` leaves,
+/// the bound book's leaves run `0..total_leaves` from front cover to back cover —
+/// but a single physical sheet contributes *two* leaves to the bundle, one near
+/// the front (leaf k) and one near the back (leaf `total_leaves - 1 - k`),
+/// connected by the sheet's spine fold. Both ends of the same sheet sit at the
+/// same nesting depth in the spine stack: the outermost sheet wraps around the
+/// whole bundle, so its two leaves (front and back covers) are both at depth 0.
+///
+/// Hence the depth of leaf `k` is its distance from whichever cover it's
+/// closer to: `min(k, total_leaves - 1 - k)`.
+fn leaf_creep_depth(sig_page_idx: usize, total_leaves: usize) -> usize {
+    let leaf_idx = sig_page_idx / 2;
+    leaf_idx.min(total_leaves.saturating_sub(1).saturating_sub(leaf_idx))
 }
 
 /// Determine the spine-fold edge of a cell at page-col `col` within an
