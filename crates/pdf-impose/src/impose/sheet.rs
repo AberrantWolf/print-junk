@@ -2,8 +2,7 @@
 
 use super::page_source::{PageSource, XObjectCache};
 use crate::layout::{
-    ArrangementConfig, PagePlacement, SpreadCutEdges, SpreadSheetLayout,
-    calculate_spread_placements,
+    ArrangementConfig, PagePlacement, SheetSlot, SpreadCutEdges, SpreadSheetLayout, place_slots,
 };
 use crate::marks::{MarksConfig, MarksContext, generate_marks};
 use crate::options::ImpositionOptions;
@@ -33,29 +32,29 @@ pub(crate) struct SheetContent {
 pub(crate) fn generate_sheet_content(
     output: &mut Document,
     page_source: &PageSource,
-    layout: &SpreadSheetLayout,
+    slots: &[SheetSlot],
+    spread_layout: &SpreadSheetLayout,
     cut_edges: &[SpreadCutEdges],
     options: &ImpositionOptions,
     signature_index: usize,
     total_signatures: usize,
     sheet_in_signature: usize,
     xobject_cache: &mut XObjectCache,
-    creep_offsets_pt: &[(f32, f32)],
+    creep: crate::types::CreepConfig,
 ) -> Result<SheetContent> {
     let mut content_ops = Vec::new();
     let mut xobjects = Dictionary::new();
     let mut fonts = Dictionary::new();
 
-    // Calculate page placements from spreads
+    // Calculate page placements from per-page slots
     let source_dimensions = page_source.all_dimensions();
-    let placements = calculate_spread_placements(
-        &layout.spreads,
+    let placements = place_slots(
+        slots,
         cut_edges,
         &source_dimensions,
         &options.margins.leaf,
         options.scaling_mode,
-        layout.side,
-        creep_offsets_pt,
+        creep,
     );
 
     // Render each page placement
@@ -75,9 +74,9 @@ pub(crate) fn generate_sheet_content(
     if options.marks.any_enabled() {
         let config = ArrangementConfig::for_arrangement(options.page_arrangement);
         let marks_config = MarksConfig::from_layout(
-            &layout.spreads,
+            &spread_layout.spreads,
             &config,
-            &layout.leaf_bounds,
+            &spread_layout.leaf_bounds,
             crate::constants::mm_to_pt(options.margins.leaf.trim_allowance_mm),
         );
         let marks_ctx = MarksContext {
@@ -85,7 +84,7 @@ pub(crate) fn generate_sheet_content(
             signature_index,
             total_signatures,
             sewing_config: options.sewing_config,
-            sheet_side: layout.side,
+            sheet_side: spread_layout.side,
             sheet_in_signature,
         };
         content_ops.push(generate_marks(
@@ -120,7 +119,8 @@ pub(crate) fn generate_sheet_content(
 pub(crate) fn render_sheet_spreads(
     output: &mut Document,
     page_source: &PageSource,
-    layout: &SpreadSheetLayout,
+    slots: &[SheetSlot],
+    spread_layout: &SpreadSheetLayout,
     cut_edges: &[SpreadCutEdges],
     sheet_width_pt: f32,
     sheet_height_pt: f32,
@@ -130,19 +130,20 @@ pub(crate) fn render_sheet_spreads(
     total_signatures: usize,
     sheet_in_signature: usize,
     xobject_cache: &mut XObjectCache,
-    creep_offsets_pt: &[(f32, f32)],
+    creep: crate::types::CreepConfig,
 ) -> Result<ObjectId> {
     let sheet = generate_sheet_content(
         output,
         page_source,
-        layout,
+        slots,
+        spread_layout,
         cut_edges,
         options,
         signature_index,
         total_signatures,
         sheet_in_signature,
         xobject_cache,
-        creep_offsets_pt,
+        creep,
     )?;
 
     let mut page_dict = create_page_dict(parent_pages_id, sheet_width_pt, sheet_height_pt);

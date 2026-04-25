@@ -25,13 +25,11 @@
 //! For Octavo, a Cut Margin also separates the center columns.
 
 use crate::constants::DEFAULT_PAGE_DIMENSIONS;
-use crate::types::{LeafMargins, ScalingMode};
+use crate::layout::creep::creep_for_depth_mm;
+use crate::layout::slots::slot_content_rect;
+use crate::types::{CreepConfig, LeafMargins, ScalingMode};
 
-use super::spread::calculate_spread_content;
-use super::{
-    GridPosition, PagePlacement, PageSide, Rect, SheetSide, SignatureSlot, SpreadCutEdges,
-    SpreadPosition,
-};
+use super::{Edge, PagePlacement, Rect, SheetSlot, SpreadCutEdges};
 
 // =============================================================================
 // Scaling
@@ -64,148 +62,113 @@ fn calculate_scale(
 }
 
 // =============================================================================
-// Spread-Based Placement
+// Slot-Based Placement
 // =============================================================================
 
-/// Place a single page within a content area.
-fn place_single_page(
-    source_idx: usize,
-    content_area: &Rect,
-    source_width: f32,
-    source_height: f32,
-    scaling_mode: ScalingMode,
-    spread_pos: &SpreadPosition,
-    page_side: PageSide,
-    sheet_side: SheetSide,
-) -> PagePlacement {
-    let scale = calculate_scale(
-        source_width,
-        source_height,
-        content_area.width,
-        content_area.height,
-        scaling_mode,
-    );
-
-    let scaled_width = source_width * scale;
-    let scaled_height = source_height * scale;
-
-    // Align content toward the spine (center of spread)
-    let x = match page_side {
-        PageSide::Verso => {
-            // Verso: push content right (toward spine)
-            content_area.right() - scaled_width
-        }
-        PageSide::Recto => {
-            // Recto: push content left (toward spine)
-            content_area.x
-        }
-    };
-
-    // Center vertically
-    let y = content_area.y + (content_area.height - scaled_height) / 2.0;
-
-    // Create a SignatureSlot for compatibility with rendering
-    let slot = SignatureSlot {
-        slot_index: spread_pos.spread_index * 2 + usize::from(page_side.is_recto()),
-        sheet_side,
-        grid_pos: GridPosition::new(0, usize::from(page_side.is_recto())),
-        rotated: spread_pos.rotated,
-        page_side,
-    };
-
-    PagePlacement {
-        source_page: Some(source_idx),
-        content_rect: Rect::new(x, y, scaled_width, scaled_height),
-        rotation_degrees: spread_pos.rotation_degrees(),
-        scale,
-        slot,
-    }
-}
-
-/// Calculate all page placements for a sheet side using the spread-based system.
+/// Place all source pages onto their slots, applying creep compensation.
+///
+/// Each [`SheetSlot`] carries everything this function needs: physical
+/// position, rotation, leaf depth, and which edge is the spine. Creep
+/// shifts the content toward the slot's spine edge by an amount derived
+/// from `creep` and `slot.leaf_depth`.
 ///
 /// # Arguments
-/// * `spreads` - Spread positions with page assignments
-/// * `cut_edges` - Cut edge information for each spread
-/// * `source_dimensions` - Dimensions of all source pages
-/// * `leaf_margins` - Margin configuration
-/// * `scaling_mode` - How to scale pages
-/// * `sheet_side` - Front or back of the physical sheet
-/// * `creep_offsets_pt` - Per-side creep offsets in points: one `(verso_pt,
-///   recto_pt)` tuple per spread. Each value is non-negative; the verso page
-///   shifts right by `verso_pt` and the recto page shifts left by `recto_pt`
-///   (both toward the spine). Pass `&[]` for no creep.
-///
-/// # Returns
-/// Vector of all `PagePlacements` for rendering
-pub fn calculate_spread_placements(
-    spreads: &[SpreadPosition],
+/// * `slots` — one slot per page position on the printed face. Order is
+///   `[verso0, recto0, verso1, recto1, …]`, grouped by spread.
+/// * `cut_edges` — one entry per *spread* (so `slots.len() / 2` entries),
+///   describing which edges of the spread have a cut.
+/// * `source_dimensions` — page sizes for the source document.
+/// * `leaf_margins` — the four margins around each leaf.
+/// * `scaling_mode` — fit/fill/none/stretch.
+/// * `creep` — creep configuration; pass [`CreepConfig::None`] for bindings
+///   (perfect/spiral/side-stitch) where there is no fold geometry.
+pub fn place_slots(
+    slots: &[SheetSlot],
     cut_edges: &[SpreadCutEdges],
     source_dimensions: &[(f32, f32)],
     leaf_margins: &LeafMargins,
     scaling_mode: ScalingMode,
-    sheet_side: SheetSide,
-    creep_offsets_pt: &[(f32, f32)],
+    creep: CreepConfig,
 ) -> Vec<PagePlacement> {
-    spreads
-        .iter()
-        .zip(cut_edges.iter())
-        .enumerate()
-        .flat_map(|(spread_idx, (spread_pos, cuts))| {
-            let content_areas = calculate_spread_content(spread_pos, leaf_margins, *cuts);
-            let (verso_creep, recto_creep) = creep_offsets_pt
-                .get(spread_idx)
-                .copied()
-                .unwrap_or((0.0, 0.0));
-            let mut placements = Vec::with_capacity(2);
+    let mut placements = Vec::with_capacity(slots.len());
+    for (slot_idx, slot) in slots.iter().enumerate() {
+        let Some(source_idx) = slot.source_page else {
+            continue;
+        };
+        let cuts = cut_edges
+            .get(slot_idx / 2)
+            .copied()
+            .unwrap_or_else(SpreadCutEdges::none);
 
-            // Place verso (left) page
-            if let Some(verso_idx) = spread_pos.spread.verso_page {
-                let (src_w, src_h) = source_dimensions
-                    .get(verso_idx)
-                    .copied()
-                    .unwrap_or(DEFAULT_PAGE_DIMENSIONS);
+        let content_area = slot_content_rect(slot, leaf_margins, cuts);
+        let (src_w, src_h) = source_dimensions
+            .get(source_idx)
+            .copied()
+            .unwrap_or(DEFAULT_PAGE_DIMENSIONS);
 
-                let mut placement = place_single_page(
-                    verso_idx,
-                    &content_areas.verso,
-                    src_w,
-                    src_h,
-                    scaling_mode,
-                    spread_pos,
-                    PageSide::Verso,
-                    sheet_side,
-                );
-                // Shift verso content right (toward spine)
-                placement.content_rect.x += verso_creep;
-                placements.push(placement);
-            }
+        let scale = calculate_scale(
+            src_w,
+            src_h,
+            content_area.width,
+            content_area.height,
+            scaling_mode,
+        );
+        let scaled_w = src_w * scale;
+        let scaled_h = src_h * scale;
 
-            // Place recto (right) page
-            if let Some(recto_idx) = spread_pos.spread.recto_page {
-                let (src_w, src_h) = source_dimensions
-                    .get(recto_idx)
-                    .copied()
-                    .unwrap_or(DEFAULT_PAGE_DIMENSIONS);
+        // Align toward the spine edge of this slot.
+        let (mut x, mut y) = align_toward_spine(&content_area, scaled_w, scaled_h, slot.spine_edge);
 
-                let mut placement = place_single_page(
-                    recto_idx,
-                    &content_areas.recto,
-                    src_w,
-                    src_h,
-                    scaling_mode,
-                    spread_pos,
-                    PageSide::Recto,
-                    sheet_side,
-                );
-                // Shift recto content left (toward spine)
-                placement.content_rect.x -= recto_creep;
-                placements.push(placement);
-            }
+        // Apply creep: shift content toward the spine by an amount
+        // proportional to leaf depth.
+        let shift_pt = crate::constants::mm_to_pt(creep_for_depth_mm(creep, slot.leaf_depth));
+        match slot.spine_edge {
+            Edge::Right => x += shift_pt,
+            Edge::Left => x -= shift_pt,
+            Edge::Top => y += shift_pt,
+            Edge::Bottom => y -= shift_pt,
+        }
 
-            placements
-        })
-        .collect()
+        placements.push(PagePlacement {
+            source_page: Some(source_idx),
+            content_rect: Rect::new(x, y, scaled_w, scaled_h),
+            rotation_degrees: slot.rotation_degrees(),
+            scale,
+        });
+    }
+    placements
+}
+
+/// Align scaled content toward the slot's spine edge, centered on the orthogonal axis.
+fn align_toward_spine(
+    content_area: &Rect,
+    scaled_w: f32,
+    scaled_h: f32,
+    spine: Edge,
+) -> (f32, f32) {
+    match spine {
+        Edge::Right => {
+            // Push to the right: content's right edge meets content_area's right.
+            let x = content_area.right() - scaled_w;
+            let y = content_area.y + (content_area.height - scaled_h) / 2.0;
+            (x, y)
+        }
+        Edge::Left => {
+            let x = content_area.x;
+            let y = content_area.y + (content_area.height - scaled_h) / 2.0;
+            (x, y)
+        }
+        Edge::Top => {
+            let x = content_area.x + (content_area.width - scaled_w) / 2.0;
+            let y = content_area.top() - scaled_h;
+            (x, y)
+        }
+        Edge::Bottom => {
+            let x = content_area.x + (content_area.width - scaled_w) / 2.0;
+            let y = content_area.y;
+            (x, y)
+        }
+    }
 }
 
 #[cfg(test)]
