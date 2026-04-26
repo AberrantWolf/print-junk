@@ -1,6 +1,6 @@
 use lopdf::Document;
 use pdf_async_runtime::{ImpositionOptions, PdfUpdate};
-use pdf_impose::{calculate_statistics, generate_preview, impose, load_multiple_pdfs, save_pdf};
+use pdf_impose::{calculate_statistics, generate_preview, impose_and_save, load_multiple_pdfs};
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
@@ -163,14 +163,14 @@ pub async fn handle_generate(
     };
 
     let _ = update_tx.send(PdfUpdate::Progress {
-        operation: "Imposing pages".to_string(),
+        operation: "Imposing and saving".to_string(),
         current: 1,
-        total: 3,
+        total: 2,
     });
 
-    // Impose
-    let imposed = match impose(documents, &options).await {
-        Ok(doc) => doc,
+    // Impose and save (handles split_mode internally)
+    let saved_paths = match impose_and_save(documents, &options, &output_path).await {
+        Ok(paths) => paths,
         Err(e) => {
             let _ = update_tx.send(PdfUpdate::Error {
                 message: format!("Failed to impose PDF: {e}"),
@@ -179,21 +179,19 @@ pub async fn handle_generate(
         }
     };
 
-    let _ = update_tx.send(PdfUpdate::Progress {
-        operation: "Saving PDF".to_string(),
-        current: 2,
-        total: 3,
-    });
+    let primary_path = saved_paths
+        .first()
+        .cloned()
+        .unwrap_or_else(|| output_path.clone());
 
-    // Save
-    if let Err(e) = save_pdf(imposed, &output_path).await {
-        let _ = update_tx.send(PdfUpdate::Error {
-            message: format!("Failed to save PDF: {e}"),
-        });
-        return;
+    if saved_paths.len() > 1 {
+        log::info!("Saved {} signature-split PDFs:", saved_paths.len());
+        for p in &saved_paths {
+            log::info!("  {}", p.display());
+        }
     }
 
-    let _ = update_tx.send(PdfUpdate::ImposeComplete { path: output_path });
+    let _ = update_tx.send(PdfUpdate::ImposeComplete { path: primary_path });
 }
 
 pub async fn handle_load_config(path: PathBuf, update_tx: &mpsc::UnboundedSender<PdfUpdate>) {

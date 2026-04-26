@@ -578,11 +578,8 @@ pub enum SplitMode {
     /// No splitting - single output file
     #[default]
     None,
-    /// Split by number of pages
-    ByPages(usize),
-    /// Split by number of sheets
-    BySheets(usize),
-    /// Split by number of signatures
+    /// Split by number of signatures per output file. Must be ≥ 1, and only
+    /// valid when `binding_type.uses_signatures()`.
     BySignatures(usize),
 }
 

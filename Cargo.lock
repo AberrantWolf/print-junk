@@ -2849,7 +2849,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "pdf-async-runtime"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "pdf-flashcards",
  "pdf-impose",
@@ -2859,7 +2859,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-flashcards"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "csv",
  "log",
@@ -2871,7 +2871,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-impose"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "log",
  "lopdf",
@@ -2884,7 +2884,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-tools-cli"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2897,7 +2897,7 @@ dependencies = [
 
 [[package]]
 name = "pdf-tools-gui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "chrono",

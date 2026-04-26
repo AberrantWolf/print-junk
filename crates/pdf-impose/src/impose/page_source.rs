@@ -86,10 +86,49 @@ impl PageSource {
         )
     }
 
+    /// Build a page source from a specific source-page range.
+    ///
+    /// `source_page_offset` skips that many real source pages before collection
+    /// begins, and `max_source_pages` limits how many real pages are included
+    /// after the skip. Flyleaves are added around the selected range.
+    ///
+    /// Used by `impose_and_save` when splitting output by signature.
+    pub fn with_source_page_range(
+        documents: Vec<Document>,
+        front_flyleaves: usize,
+        back_flyleaves: usize,
+        source_page_offset: usize,
+        max_source_pages: usize,
+    ) -> Result<Self> {
+        Self::build_range(
+            documents,
+            front_flyleaves,
+            back_flyleaves,
+            source_page_offset,
+            Some(max_source_pages),
+        )
+    }
+
     fn build(
         documents: Vec<Document>,
         front_flyleaves: usize,
         back_flyleaves: usize,
+        max_source_pages: Option<usize>,
+    ) -> Result<Self> {
+        Self::build_range(
+            documents,
+            front_flyleaves,
+            back_flyleaves,
+            0,
+            max_source_pages,
+        )
+    }
+
+    fn build_range(
+        documents: Vec<Document>,
+        front_flyleaves: usize,
+        back_flyleaves: usize,
+        source_page_offset: usize,
         max_source_pages: Option<usize>,
     ) -> Result<Self> {
         // Determine blank page dimensions from the first real page we find
@@ -107,7 +146,11 @@ impl PageSource {
 
         // Estimate capacity
         let total_source: usize = documents.iter().map(|d| d.get_pages().len()).sum();
-        let source_limit = max_source_pages.unwrap_or(total_source).min(total_source);
+        let source_offset = source_page_offset.min(total_source);
+        let available_source = total_source.saturating_sub(source_offset);
+        let source_limit = max_source_pages
+            .unwrap_or(available_source)
+            .min(available_source);
         let capacity = front_blank_count + source_limit + back_blank_count;
         let mut pages = Vec::with_capacity(capacity);
 
@@ -119,6 +162,7 @@ impl PageSource {
         }
 
         // Source pages from all documents
+        let mut to_skip = source_offset;
         let mut remaining = source_limit;
         for (doc_index, doc) in documents.iter().enumerate() {
             if remaining == 0 {
@@ -126,6 +170,10 @@ impl PageSource {
             }
             let doc_pages = doc.get_pages();
             for (&_page_num, &page_id) in &doc_pages {
+                if to_skip > 0 {
+                    to_skip -= 1;
+                    continue;
+                }
                 if remaining == 0 {
                     break;
                 }

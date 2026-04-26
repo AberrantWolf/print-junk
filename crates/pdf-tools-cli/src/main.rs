@@ -88,6 +88,11 @@ enum Commands {
         #[arg(long, default_value = "0")]
         back_flyleaves: usize,
 
+        /// Split output into one PDF per N signatures (signature/case binding only).
+        /// Files are named `{output-stem}-signature-{N}.{ext}`.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        split_by_signatures: Option<u64>,
+
         /// Add fold lines (including spine fold)
         #[arg(long)]
         fold_lines: bool,
@@ -411,6 +416,7 @@ async fn main() -> Result<()> {
             scaling,
             front_flyleaves,
             back_flyleaves,
+            split_by_signatures,
             fold_lines,
             trim_marks,
             crop_marks,
@@ -447,6 +453,11 @@ async fn main() -> Result<()> {
                 CreepModeArg::FromCaliper => pdf_impose::CreepConfig::FromCaliper {
                     paper_thickness_mm: paper_thickness,
                 },
+            };
+
+            let split_mode = match split_by_signatures {
+                Some(n) => pdf_impose::SplitMode::BySignatures(n as usize),
+                None => pdf_impose::SplitMode::None,
             };
 
             let cascade = if cascade_cols > 1 || cascade_rows > 1 {
@@ -504,6 +515,7 @@ async fn main() -> Result<()> {
                 },
                 cascade,
                 creep,
+                split_mode,
                 ..Default::default()
             };
 
@@ -533,10 +545,18 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            // Perform imposition
-            let imposed = pdf_impose::impose(documents, &options).await?;
-            pdf_impose::save_pdf(imposed, &output).await?;
-            println!("Imposed → {}", output.display());
+            // Perform imposition (handles split_mode internally)
+            let saved_paths = pdf_impose::impose_and_save(documents, &options, &output).await?;
+            match saved_paths.len() {
+                0 => unreachable!("impose_and_save always returns at least one path"),
+                1 => println!("Imposed → {}", saved_paths[0].display()),
+                n => {
+                    println!("Imposed → {n} files:");
+                    for p in &saved_paths {
+                        println!("  {}", p.display());
+                    }
+                }
+            }
         }
     }
 

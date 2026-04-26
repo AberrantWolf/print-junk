@@ -110,6 +110,171 @@ async fn test_save_pdf() {
 }
 
 #[tokio::test]
+async fn test_impose_and_save_split_by_signatures() {
+    use tempfile::tempdir;
+
+    let doc = create_test_pdf(24);
+    let mut options = ImpositionOptions::default();
+    options.input_files.push(PathBuf::from("test.pdf"));
+    options.binding_type = BindingType::Signature;
+    options.page_arrangement = PageArrangement::Quarto;
+    options.split_mode = SplitMode::BySignatures(2);
+
+    let temp_dir = tempdir().unwrap();
+    let output_path = temp_dir.path().join("imposed.pdf");
+
+    let saved_paths = impose_and_save(vec![doc], &options, &output_path)
+        .await
+        .unwrap();
+
+    assert_eq!(saved_paths.len(), 2);
+    assert_eq!(
+        saved_paths[0].file_name().and_then(|s| s.to_str()),
+        Some("imposed-signature-1.pdf")
+    );
+    assert_eq!(
+        saved_paths[1].file_name().and_then(|s| s.to_str()),
+        Some("imposed-signature-2.pdf")
+    );
+
+    let first = Document::load(&saved_paths[0]).unwrap();
+    let second = Document::load(&saved_paths[1]).unwrap();
+
+    // 24 source pages with Quarto = 3 signatures total.
+    // Split by 2 signatures => first file has 2 signatures (4 output pages),
+    // second file has 1 signature (2 output pages).
+    assert_eq!(first.get_pages().len(), 4);
+    assert_eq!(second.get_pages().len(), 2);
+}
+
+#[tokio::test]
+async fn test_split_by_signatures_accounts_for_front_flyleaves() {
+    use tempfile::tempdir;
+
+    let doc = create_test_pdf(17);
+    let mut options = ImpositionOptions::default();
+    options.input_files.push(PathBuf::from("test.pdf"));
+    options.binding_type = BindingType::Signature;
+    options.page_arrangement = PageArrangement::Quarto;
+    options.front_flyleaves = 2; // 4 extra virtual pages at the beginning
+    options.split_mode = SplitMode::BySignatures(2);
+
+    let temp_dir = tempdir().unwrap();
+    let output_path = temp_dir.path().join("imposed.pdf");
+
+    let saved_paths = impose_and_save(vec![doc], &options, &output_path)
+        .await
+        .unwrap();
+
+    assert_eq!(saved_paths.len(), 2);
+
+    let first = Document::load(&saved_paths[0]).unwrap();
+    let second = Document::load(&saved_paths[1]).unwrap();
+
+    // Virtual pages = 4 flyleaf + 17 source = 21.
+    // Quarto = 8 pp/sig, split by 2 sigs/file => 16 virtual pages/file.
+    // First file stays capped at 2 signatures (4 output pages); second has 1 (2 output pages).
+    assert_eq!(first.get_pages().len(), 4);
+    assert_eq!(second.get_pages().len(), 2);
+}
+
+#[tokio::test]
+async fn test_split_by_signatures_final_chunk_page_count_matches_requested_signatures() {
+    use tempfile::tempdir;
+
+    let doc = create_test_pdf(1947);
+    let mut options = ImpositionOptions::default();
+    options.input_files.push(PathBuf::from("test.pdf"));
+    options.binding_type = BindingType::Signature;
+    options.page_arrangement = PageArrangement::Quarto;
+    options.sheets_per_signature = 10;
+    options.split_mode = SplitMode::BySignatures(5);
+
+    let temp_dir = tempdir().unwrap();
+    let output_path = temp_dir.path().join("imposed.pdf");
+
+    let saved_paths = impose_and_save(vec![doc], &options, &output_path)
+        .await
+        .unwrap();
+
+    assert_eq!(saved_paths.len(), 5);
+
+    let last = Document::load(&saved_paths[4]).unwrap();
+
+    // 5 signatures/file × 10 sheets/signature × 2 sides/sheet = 100 imposed pages/file.
+    assert_eq!(last.get_pages().len(), 100);
+}
+
+#[tokio::test]
+async fn test_validate_rejects_split_by_signatures_zero() {
+    let mut options = ImpositionOptions::default();
+    options.input_files.push(PathBuf::from("test.pdf"));
+    options.binding_type = BindingType::Signature;
+    options.split_mode = SplitMode::BySignatures(0);
+
+    match options.validate() {
+        Err(ImposeError::Config(msg)) => {
+            assert!(
+                msg.contains("Signatures per file"),
+                "expected zero-signatures error, got: {msg}"
+            );
+        }
+        other => panic!("expected Config error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_validate_rejects_split_by_signatures_with_non_signature_binding() {
+    for binding in [
+        BindingType::PerfectBinding,
+        BindingType::SideStitch,
+        BindingType::Spiral,
+    ] {
+        let mut options = ImpositionOptions::default();
+        options.input_files.push(PathBuf::from("test.pdf"));
+        options.binding_type = binding;
+        options.split_mode = SplitMode::BySignatures(1);
+
+        match options.validate() {
+            Err(ImposeError::Config(msg)) => {
+                assert!(
+                    msg.contains("signature-based binding"),
+                    "binding {binding:?}: expected binding-mismatch error, got: {msg}"
+                );
+            }
+            other => panic!("binding {binding:?}: expected Config error, got {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_impose_and_save_single_chunk_uses_base_path_verbatim() {
+    use tempfile::tempdir;
+
+    // 8 source pages with Quarto = 1 signature; split-by-1 = 1 chunk.
+    let doc = create_test_pdf(8);
+    let mut options = ImpositionOptions::default();
+    options.input_files.push(PathBuf::from("test.pdf"));
+    options.binding_type = BindingType::Signature;
+    options.page_arrangement = PageArrangement::Quarto;
+    options.split_mode = SplitMode::BySignatures(1);
+
+    let temp_dir = tempdir().unwrap();
+    let output_path = temp_dir.path().join("imposed.pdf");
+
+    let saved_paths = impose_and_save(vec![doc], &options, &output_path)
+        .await
+        .unwrap();
+
+    assert_eq!(saved_paths.len(), 1);
+    assert_eq!(
+        saved_paths[0], output_path,
+        "single-chunk case must not append a suffix"
+    );
+    assert!(output_path.exists());
+}
+
+#[tokio::test]
 async fn test_impose_no_pages() {
     let doc = create_test_pdf(0);
     let mut options = ImpositionOptions::default();

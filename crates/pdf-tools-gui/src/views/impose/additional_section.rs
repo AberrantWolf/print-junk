@@ -77,6 +77,7 @@ fn show_split_mode(ui: &mut egui::Ui, state: &mut ImposeState) -> bool {
 
 fn show_split_mode_selector(ui: &mut egui::Ui, state: &mut ImposeState) -> bool {
     let mut changed = false;
+    let supports_signatures = state.options.binding_type.uses_signatures();
 
     ui.horizontal(|ui| {
         if ui
@@ -90,29 +91,7 @@ fn show_split_mode_selector(ui: &mut egui::Ui, state: &mut ImposeState) -> bool 
             changed = true;
         }
 
-        if ui
-            .selectable_label(
-                matches!(state.options.split_mode, SplitMode::ByPages(_)),
-                "By pages",
-            )
-            .clicked()
-        {
-            state.options.split_mode = SplitMode::ByPages(100);
-            changed = true;
-        }
-
-        if ui
-            .selectable_label(
-                matches!(state.options.split_mode, SplitMode::BySheets(_)),
-                "By sheets",
-            )
-            .clicked()
-        {
-            state.options.split_mode = SplitMode::BySheets(25);
-            changed = true;
-        }
-
-        if state.options.binding_type.uses_signatures()
+        if supports_signatures
             && ui
                 .selectable_label(
                     matches!(state.options.split_mode, SplitMode::BySignatures(_)),
@@ -120,33 +99,30 @@ fn show_split_mode_selector(ui: &mut egui::Ui, state: &mut ImposeState) -> bool 
                 )
                 .clicked()
         {
-            state.options.split_mode = SplitMode::BySignatures(5);
+            state.options.split_mode = SplitMode::BySignatures(1);
             changed = true;
         }
     });
+
+    // Defensive: if the user switched to a non-signature binding while
+    // BySignatures was selected, snap back to None so we never submit an
+    // invalid configuration to the worker.
+    if !supports_signatures && matches!(state.options.split_mode, SplitMode::BySignatures(_)) {
+        state.options.split_mode = SplitMode::None;
+        changed = true;
+    }
 
     changed
 }
 
 fn show_split_value_editor(ui: &mut egui::Ui, state: &mut ImposeState) -> bool {
     match &mut state.options.split_mode {
-        SplitMode::ByPages(n) => {
-            ui.horizontal(|ui| {
-                ui.label("Pages per file:");
-                ui.add(egui::DragValue::new(n).range(1..=1000)).changed()
-            })
-            .inner
-        }
-        SplitMode::BySheets(n) => {
-            ui.horizontal(|ui| {
-                ui.label("Sheets per file:");
-                ui.add(egui::DragValue::new(n).range(1..=500)).changed()
-            })
-            .inner
-        }
         SplitMode::BySignatures(n) => {
             ui.horizontal(|ui| {
-                ui.label("Signatures per file:");
+                ui.label("Signatures per file:").on_hover_text(
+                    "1 produces one PDF per signature. \
+                     Higher values group multiple signatures into each output file.",
+                );
                 ui.add(egui::DragValue::new(n).range(1..=100)).changed()
             })
             .inner

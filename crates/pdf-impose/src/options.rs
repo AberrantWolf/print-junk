@@ -268,6 +268,22 @@ impl ImpositionOptions {
             _ => {}
         }
 
+        // Validate split mode
+        if let SplitMode::BySignatures(n) = self.split_mode {
+            if n == 0 {
+                return Err(ImposeError::Config(
+                    "Signatures per file must be at least 1".to_string(),
+                ));
+            }
+            if !self.binding_type.uses_signatures() {
+                return Err(ImposeError::Config(format!(
+                    "Split by signatures requires a signature-based binding \
+                     (Signature or CaseBinding); got {:?}",
+                    self.binding_type
+                )));
+            }
+        }
+
         // Validate output format compatibility with binding type
         if let (
             BindingType::PerfectBinding | BindingType::SideStitch | BindingType::Spiral,
@@ -618,16 +634,6 @@ mod serde_impls {
             use serde::ser::SerializeStruct;
             match self {
                 SplitMode::None => serializer.serialize_str("None"),
-                SplitMode::ByPages(n) => {
-                    let mut s = serializer.serialize_struct("ByPages", 1)?;
-                    s.serialize_field("pages", n)?;
-                    s.end()
-                }
-                SplitMode::BySheets(n) => {
-                    let mut s = serializer.serialize_struct("BySheets", 1)?;
-                    s.serialize_field("sheets", n)?;
-                    s.end()
-                }
                 SplitMode::BySignatures(n) => {
                     let mut s = serializer.serialize_struct("BySignatures", 1)?;
                     s.serialize_field("signatures", n)?;
@@ -668,14 +674,10 @@ mod serde_impls {
                 where
                     M: MapAccess<'de>,
                 {
-                    let mut pages = None;
-                    let mut sheets = None;
                     let mut signatures = None;
 
                     while let Some(key) = map.next_key::<String>()? {
                         match key.as_str() {
-                            "pages" => pages = Some(map.next_value()?),
-                            "sheets" => sheets = Some(map.next_value()?),
                             "signatures" => signatures = Some(map.next_value()?),
                             _ => {
                                 let _: serde::de::IgnoredAny = map.next_value()?;
@@ -683,14 +685,9 @@ mod serde_impls {
                         }
                     }
 
-                    if let Some(p) = pages {
-                        Ok(SplitMode::ByPages(p))
-                    } else if let Some(s) = sheets {
-                        Ok(SplitMode::BySheets(s))
-                    } else if let Some(sig) = signatures {
-                        Ok(SplitMode::BySignatures(sig))
-                    } else {
-                        Err(de::Error::missing_field("pages, sheets, or signatures"))
+                    match signatures {
+                        Some(sig) => Ok(SplitMode::BySignatures(sig)),
+                        None => Err(de::Error::missing_field("signatures")),
                     }
                 }
             }

@@ -13,7 +13,7 @@ mod sheet;
 mod signature;
 mod simple;
 
-pub use io::{load_multiple_pdfs, load_pdf, save_pdf};
+pub use io::{impose_and_save, load_multiple_pdfs, load_pdf, save_pdf};
 pub use page_source::{PageSource, XObjectCache};
 
 use crate::options::ImpositionOptions;
