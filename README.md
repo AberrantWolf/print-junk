@@ -1,4 +1,4 @@
-# 📄 PDF Tools
+# 📄 Print Junk
 
 Collection of PDF processing and generation tools built with Rust.
 
@@ -10,13 +10,13 @@ Collection of PDF processing and generation tools built with Rust.
 
 ## 📦 Installation
 
-Download the latest release for your platform from the [Releases page](https://github.com/AberrantWolf/pdf-tools/releases).
+Download the latest release for your platform from the [Releases page](https://github.com/AberrantWolf/print-junk/releases).
 
 Extract the archive and keep all files in the same directory — the GUI needs the bundled PDFium library alongside it to run.
 
 | Platform | Prerequisites |
 |----------|---------------|
-| 🍎 **macOS** | None. If Gatekeeper blocks the app, right-click → "Open" or run `xattr -cr pdf-tools-gui` |
+| 🍎 **macOS** | None. If Gatekeeper blocks the app, right-click → "Open" or run `xattr -cr print-junk-gui` |
 | 🪟 **Windows** | [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) (likely already installed) |
 | 🐧 **Linux** | A few system libraries — see [INSTALL.md](INSTALL.md) for package names |
 
@@ -26,7 +26,7 @@ Extract the archive and keep all files in the same directory — the GUI needs t
 
 ```bash
 # GUI
-./pdf-tools-gui
+./print-junk-gui
 
 # CLI help
 ./pdft --help
@@ -46,7 +46,7 @@ Extract the archive and keep all files in the same directory — the GUI needs t
 cargo build --release
 
 # Run
-cargo run --release --bin pdf-tools-gui
+cargo run --release --bin print-junk-gui
 cargo run --release --bin pdft -- --help
 ```
 
@@ -77,10 +77,10 @@ See [INSTALL.md](INSTALL.md) for troubleshooting build issues.
 ## 🏗️ Architecture
 
 ```
-pdf-tools/
+print-junk/
 ├── crates/
-│   ├── 🖥️ pdf-tools-cli      CLI (binary: pdft)
-│   ├── 🪟 pdf-tools-gui      Desktop GUI (egui) + WASM web
+│   ├── 🖥️ print-junk-cli      CLI (binary: pdft)
+│   ├── 🪟 print-junk-gui      Desktop GUI (egui) + WASM web
 │   ├── 📐 pdf-impose          Imposition library
 │   ├── 🃏 pdf-flashcards      Flashcard generation
 │   └── ⚡ pdf-async-runtime   Async command/update channels

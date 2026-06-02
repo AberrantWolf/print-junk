@@ -2883,44 +2883,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pdf-tools-cli"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "clap",
- "env_logger",
- "log",
- "pdf-flashcards",
- "pdf-impose",
- "tokio",
-]
-
-[[package]]
-name = "pdf-tools-gui"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "chrono",
- "eframe",
- "egui",
- "flate2",
- "icns",
- "image",
- "log",
- "lopdf",
- "pdf-async-runtime",
- "pdf-flashcards",
- "pdf-impose",
- "pdfium-render",
- "rfd",
- "tar",
- "tokio",
- "ureq",
- "wasm-bindgen-futures",
- "winresource",
-]
-
-[[package]]
 name = "pdfium-render"
 version = "0.8.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3078,6 +3040,44 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn",
+]
+
+[[package]]
+name = "print-junk-cli"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "log",
+ "pdf-flashcards",
+ "pdf-impose",
+ "tokio",
+]
+
+[[package]]
+name = "print-junk-gui"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "eframe",
+ "egui",
+ "flate2",
+ "icns",
+ "image",
+ "log",
+ "lopdf",
+ "pdf-async-runtime",
+ "pdf-flashcards",
+ "pdf-impose",
+ "pdfium-render",
+ "rfd",
+ "tar",
+ "tokio",
+ "ureq",
+ "wasm-bindgen-futures",
+ "winresource",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 [package]
-name = "pdf-tools-cli"
+name = "print-junk-cli"
 version.workspace = true
 edition.workspace = true
 

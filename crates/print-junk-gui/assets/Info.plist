@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>PDF Tools</string>
+    <string>Print Junk</string>
     <key>CFBundleDisplayName</key>
-    <string>PDF Tools</string>
+    <string>Print Junk</string>
     <key>CFBundleIdentifier</key>
-    <string>com.aberrantwolf.pdf-tools</string>
+    <string>com.aberrantwolf.print-junk</string>
     <key>CFBundleVersion</key>
     <string>${VERSION}</string>
     <key>CFBundleShortVersionString</key>
     <string>${VERSION}</string>
     <key>CFBundleExecutable</key>
-    <string>pdf-tools-gui</string>
+    <string>print-junk-gui</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

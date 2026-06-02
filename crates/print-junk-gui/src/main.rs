@@ -65,17 +65,17 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1024.0, 768.0])
-            .with_title("PDF Tools")
+            .with_title("Print Junk")
             .with_icon(icon),
         ..Default::default()
     };
 
     eframe::run_native(
-        "PDF Tools",
+        "Print Junk",
         options,
         Box::new(move |cc| {
             setup_fonts(&cc.egui_ctx);
-            Ok(Box::new(app::PdfToolsApp::new(cc, handle)))
+            Ok(Box::new(app::PrintJunkApp::new(cc, handle)))
         }),
     )
 }
@@ -92,11 +92,11 @@ pub async fn wasm_main() {
     let web_options = eframe::WebOptions::default();
     eframe::WebRunner::new()
         .start(
-            "pdf_tools_canvas",
+            "print_junk_canvas",
             web_options,
             Box::new(|cc| {
                 setup_fonts(&cc.egui_ctx);
-                Ok(Box::new(app::PdfToolsApp::new(cc)))
+                Ok(Box::new(app::PrintJunkApp::new(cc)))
             }),
         )
         .await

@@ -1,4 +1,4 @@
-# Clippy configuration for pdf-tools workspace
+# Clippy configuration for print-junk workspace
 # Enforces modern Rust 2024 idioms and best practices
 
 # Allow unwrapping in test code

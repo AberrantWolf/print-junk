@@ -4,8 +4,8 @@ members = [
     "crates/pdf-async-runtime",
     "crates/pdf-flashcards",
     "crates/pdf-impose",
-    "crates/pdf-tools-cli",
-    "crates/pdf-tools-gui",
+    "crates/print-junk-cli",
+    "crates/print-junk-gui",
 ]
 
 [workspace.package]

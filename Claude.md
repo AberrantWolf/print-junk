@@ -2,7 +2,7 @@
 
 ## Architecture
 
-- **CLI app** (`pdf-tools-cli`) and **GUI app** (`pdf-tools-gui`) use shared library crates for core logic
+- **CLI app** (`print-junk-cli`) and **GUI app** (`print-junk-gui`) use shared library crates for core logic
 - **Async architecture** with channels for responsive UIs
 - All work must be async with commands/updates via communication channels
 - **Cross-platform**: desktop (macOS/Linux/Windows) + web (WASM)
@@ -32,8 +32,8 @@ Collection of PDF processing and generation tools - features wanted but not foun
 
 Located in `crates/`:
 
-- `pdf-tools-cli` - CLI interface (binary: `pdft`) - working
-- `pdf-tools-gui` - Desktop GUI (egui/eframe) + WASM web support
+- `print-junk-cli` - CLI interface (binary: `pdft`) - working
+- `print-junk-gui` - Desktop GUI (egui/eframe) + WASM web support
 - `pdf-async-runtime` - Async runtime/communication layer (`PdfCommand`/`PdfUpdate` channels)
 - `pdf-impose` - PDF imposition library with signature binding, perfect binding, printer's marks
 - `pdf-flashcards` - PDF flashcard generation from CSV (working)

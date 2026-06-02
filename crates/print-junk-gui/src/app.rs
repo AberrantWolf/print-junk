@@ -22,7 +22,7 @@ struct ProgressState {
     total: usize,
 }
 
-pub struct PdfToolsApp {
+pub struct PrintJunkApp {
     mode: Mode,
 
     // Logging
@@ -46,7 +46,7 @@ pub struct PdfToolsApp {
     _tokio_handle: tokio::runtime::Handle,
 }
 
-impl PdfToolsApp {
+impl PrintJunkApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn new(cc: &eframe::CreationContext<'_>, tokio_handle: tokio::runtime::Handle) -> Self {
         let logger = AppLogger::new(1000);
@@ -70,7 +70,7 @@ impl PdfToolsApp {
         // Spawn worker task
         tokio_handle.spawn(crate::worker::worker_task(command_rx, worker_update_tx));
 
-        log::info!("PDF Tools GUI started");
+        log::info!("Print Junk GUI started");
 
         Self {
             mode: Mode::default(),
@@ -109,7 +109,7 @@ impl PdfToolsApp {
         // Spawn worker task using wasm-bindgen-futures
         wasm_bindgen_futures::spawn_local(crate::worker::worker_task(command_rx, worker_update_tx));
 
-        log::info!("PDF Tools GUI started");
+        log::info!("Print Junk GUI started");
 
         Self {
             mode: Mode::default(),
@@ -125,7 +125,7 @@ impl PdfToolsApp {
     }
 }
 
-impl eframe::App for PdfToolsApp {
+impl eframe::App for PrintJunkApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Handle drag-and-drop routed by current mode
         let dropped: Vec<_> = ctx.input(|i| {

@@ -2,16 +2,16 @@
 
 ## From a release
 
-Download from the [Releases page](https://github.com/AberrantWolf/pdf-tools/releases). The GUI and CLI are separate downloads.
+Download from the [Releases page](https://github.com/AberrantWolf/print-junk/releases). The GUI and CLI are separate downloads.
 
-### GUI (PDF Tools)
+### GUI (Print Junk)
 
 | Platform | Download | Install |
 |----------|----------|---------|
-| macOS (Apple Silicon) | `PDF-Tools-vX.Y.Z-macos-arm64.zip` | Unzip, drag **PDF Tools.app** to Applications |
-| macOS (Intel) | `PDF-Tools-vX.Y.Z-macos-x64.zip` | Unzip, drag **PDF Tools.app** to Applications |
-| Linux (x64) | `PDF-Tools-vX.Y.Z-linux-x64.AppImage` | `chmod +x` the file, then double-click or run it |
-| Windows (x64) | `PDF-Tools-vX.Y.Z-windows-x64.zip` | Unzip, run `pdf-tools-gui.exe` |
+| macOS (Apple Silicon) | `Print-Junk-vX.Y.Z-macos-arm64.zip` | Unzip, drag **Print Junk.app** to Applications |
+| macOS (Intel) | `Print-Junk-vX.Y.Z-macos-x64.zip` | Unzip, drag **Print Junk.app** to Applications |
+| Linux (x64) | `Print-Junk-vX.Y.Z-linux-x64.AppImage` | `chmod +x` the file, then double-click or run it |
+| Windows (x64) | `Print-Junk-vX.Y.Z-windows-x64.zip` | Unzip, run `print-junk-gui.exe` |
 
 ### CLI (pdft)
 
@@ -31,7 +31,7 @@ Extract and place `pdft` somewhere on your PATH.
 Since the app isn't signed yet, macOS may block it. To allow it:
 
 - Right-click the app and select "Open", or
-- Run `xattr -cr "PDF Tools.app"` in Terminal
+- Run `xattr -cr "Print Junk.app"` in Terminal
 
 #### Linux dependencies
 
@@ -97,16 +97,16 @@ sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
 ### "Failed to load PDFium" at runtime
 
 Make sure the PDFium library file (`libpdfium.dylib`, `libpdfium.so`, or `pdfium.dll`) is in the expected location:
-- **macOS .app**: bundled inside `PDF Tools.app/Contents/Frameworks/`
+- **macOS .app**: bundled inside `Print Junk.app/Contents/Frameworks/`
 - **Linux AppImage**: bundled inside the AppImage
-- **Windows zip**: `pdfium.dll` must be in the same directory as `pdf-tools-gui.exe`
+- **Windows zip**: `pdfium.dll` must be in the same directory as `print-junk-gui.exe`
 - **From source**: automatically handled by the build script
 
 ### Force re-download of PDFium
 
 ```bash
 rm -rf vendor/pdfium
-cargo clean -p pdf-tools-gui
+cargo clean -p print-junk-gui
 cargo build --release
 ```
 

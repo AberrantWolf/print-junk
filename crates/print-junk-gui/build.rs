@@ -17,10 +17,10 @@ fn main() {
     {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("assets/icon.ico");
-        res.set("ProductName", "PDF Tools");
+        res.set("ProductName", "Print Junk");
         res.set(
             "FileDescription",
-            "PDF Tools - Imposition and processing for printers",
+            "Print Junk - Imposition and processing for printers",
         );
         res.compile().expect("Failed to compile Windows resources");
     }

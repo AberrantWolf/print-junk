@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "pdft", about = "PDF tools CLI", version)]
+#[command(name = "pdft", about = "Print Junk CLI", version)]
 struct Cli {
     /// Enable verbose diagnostic output
     #[arg(short, long, global = true)]

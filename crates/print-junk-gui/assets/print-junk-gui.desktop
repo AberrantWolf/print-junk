@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=PDF Tools
+Name=Print Junk
 Comment=PDF processing tools for printers and bookbinders
-Exec=pdf-tools-gui
-Icon=pdf-tools-gui
+Exec=print-junk-gui
+Icon=print-junk-gui
 Categories=Office;Graphics;
 MimeType=application/pdf;
 Terminal=false

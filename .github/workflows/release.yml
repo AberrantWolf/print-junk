@@ -120,31 +120,31 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          APP="PDF Tools.app"
+          APP="Print Junk.app"
 
           mkdir -p "$APP/Contents/MacOS"
           mkdir -p "$APP/Contents/Frameworks"
           mkdir -p "$APP/Contents/Resources"
 
-          cp "target/${{ matrix.target }}/release/pdf-tools-gui" "$APP/Contents/MacOS/"
+          cp "target/${{ matrix.target }}/release/print-junk-gui" "$APP/Contents/MacOS/"
           cp "vendor/pdfium/lib/${{ matrix.lib_name }}" "$APP/Contents/Frameworks/"
-          cp "crates/pdf-tools-gui/assets/icon.icns" "$APP/Contents/Resources/AppIcon.icns"
+          cp "crates/print-junk-gui/assets/icon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
           # Substitute version into Info.plist
           sed "s/\${VERSION}/${VERSION#v}/g" \
-            "crates/pdf-tools-gui/assets/Info.plist" > "$APP/Contents/Info.plist"
+            "crates/print-junk-gui/assets/Info.plist" > "$APP/Contents/Info.plist"
 
           # Fix rpath for .app bundle layout
-          install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/pdf-tools-gui"
+          install_name_tool -add_rpath @executable_path/../Frameworks "$APP/Contents/MacOS/print-junk-gui"
 
           echo "GUI_APP=${APP}" >> "$GITHUB_ENV"
-          echo "GUI_ARCHIVE=PDF-Tools-${VERSION}-${{ matrix.display_name }}.zip" >> "$GITHUB_ENV"
+          echo "GUI_ARCHIVE=Print-Junk-${VERSION}-${{ matrix.display_name }}.zip" >> "$GITHUB_ENV"
 
       - name: Sign GUI .app bundle (macOS)
         if: runner.os == 'macOS' && env.HAS_MACOS_SIGNING == 'true'
         shell: bash
         run: |
-          ENTITLEMENTS="crates/pdf-tools-gui/assets/entitlements.plist"
+          ENTITLEMENTS="crates/print-junk-gui/assets/entitlements.plist"
 
           # Sign inner Mach-O files first, then the bundle.
           codesign --force --options runtime --timestamp \
@@ -153,7 +153,7 @@ jobs:
           codesign --force --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" \
             --sign "$MACOS_SIGN_IDENTITY" \
-            "$GUI_APP/Contents/MacOS/pdf-tools-gui"
+            "$GUI_APP/Contents/MacOS/print-junk-gui"
           codesign --force --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" \
             --sign "$MACOS_SIGN_IDENTITY" \
@@ -192,37 +192,37 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          APPDIR="PDF-Tools.AppDir"
+          APPDIR="Print-Junk.AppDir"
 
           mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
 
-          cp "target/${{ matrix.target }}/release/pdf-tools-gui" "$APPDIR/usr/bin/"
+          cp "target/${{ matrix.target }}/release/print-junk-gui" "$APPDIR/usr/bin/"
           cp "vendor/pdfium/lib/${{ matrix.lib_name }}" "$APPDIR/usr/lib/"
-          cp "crates/pdf-tools-gui/assets/pdf-tools-gui.desktop" "$APPDIR/"
-          cp "crates/pdf-tools-gui/assets/icon-256.png" "$APPDIR/pdf-tools-gui.png"
+          cp "crates/print-junk-gui/assets/print-junk-gui.desktop" "$APPDIR/"
+          cp "crates/print-junk-gui/assets/icon-256.png" "$APPDIR/print-junk-gui.png"
 
           # Fix rpath for AppImage layout
-          patchelf --set-rpath '$ORIGIN/../lib' "$APPDIR/usr/bin/pdf-tools-gui"
+          patchelf --set-rpath '$ORIGIN/../lib' "$APPDIR/usr/bin/print-junk-gui"
 
           # Create AppRun symlink
-          ln -s usr/bin/pdf-tools-gui "$APPDIR/AppRun"
+          ln -s usr/bin/print-junk-gui "$APPDIR/AppRun"
 
           # Download and run appimagetool
           wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool-x86_64.AppImage
           ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" \
-            "PDF-Tools-${VERSION}-linux-x64.AppImage"
+            "Print-Junk-${VERSION}-linux-x64.AppImage"
 
-          echo "GUI_ARCHIVE=PDF-Tools-${VERSION}-linux-x64.AppImage" >> "$GITHUB_ENV"
+          echo "GUI_ARCHIVE=Print-Junk-${VERSION}-linux-x64.AppImage" >> "$GITHUB_ENV"
 
       - name: Package GUI (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $Version = "$env:GITHUB_REF_NAME"
-          $GuiDir = "PDF-Tools-${Version}-${{ matrix.display_name }}"
+          $GuiDir = "Print-Junk-${Version}-${{ matrix.display_name }}"
           New-Item -ItemType Directory -Path $GuiDir
-          Copy-Item "target\${{ matrix.target }}\release\pdf-tools-gui.exe" "$GuiDir\"
+          Copy-Item "target\${{ matrix.target }}\release\print-junk-gui.exe" "$GuiDir\"
           Copy-Item "vendor\pdfium\bin\pdfium.dll" "$GuiDir\"
           Compress-Archive -Path "$GuiDir\*" -DestinationPath "${GuiDir}.zip"
           echo "GUI_ARCHIVE=${GuiDir}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
