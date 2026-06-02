@@ -1,0 +1,102 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Purpose
+
+Collection of PDF processing and generation tools — features wanted but not found in usable FOSS form. Targets real-world print production and bookbinding workflows.
+
+## Commands
+
+```bash
+# Build everything (release; build script auto-downloads PDFium to vendor/pdfium/)
+cargo build --release
+
+# Build without the PDF viewer (skips PDFium entirely)
+cargo build --no-default-features
+
+# Run the apps
+cargo run --release --bin print-junk-gui
+cargo run --release --bin pdft -- --help
+
+# Tests
+cargo test                              # whole workspace
+cargo test -p pdf-impose                # one crate
+cargo test -p pdf-impose --test impose_tests   # one integration test file
+cargo test -p pdf-impose spread         # tests matching a substring
+
+# Lint — workspace lint config is strict; correctness/suspicious are deny-level
+cargo clippy --all-targets
+
+# Imposition example binaries (visual/format sanity checks)
+cargo run -p pdf-impose --example test_all_formats
+```
+
+Note: `pdfium_render_test` (in `print-junk-gui`) requires the `pdf-viewer` feature and the vendored PDFium library; it is skipped under `--no-default-features`.
+
+## Architecture
+
+Cargo workspace. Two binaries share logic through library crates — **no PDF logic lives in the apps**; it goes in the libraries so both CLI and GUI (and WASM) reuse it.
+
+```
+crates/
+  print-junk-cli      CLI (binary: pdft) — clap-based, calls libraries directly
+  print-junk-gui      Desktop GUI (egui/eframe) + WASM web build
+  pdf-async-runtime   PdfCommand / PdfUpdate channel message types (the contract between UI and worker)
+  pdf-impose          Imposition library (the bulk of domain logic)
+  pdf-flashcards      Flashcard PDF generation from CSV
+```
+
+### GUI async model (important)
+
+The GUI never blocks on PDF work. It follows a command/update channel pattern:
+
+- The UI thread sends `PdfCommand` variants over an mpsc channel.
+- `worker.rs` runs an async `worker_task` that pattern-matches each command and dispatches to `handlers/{flashcards,impose,viewer}.rs`.
+- Handlers send `PdfUpdate` variants back (progress, results, errors), which the UI drains each frame.
+- The command/update enums live in `pdf-async-runtime` so both sides depend on one shared contract.
+- On desktop the worker runs on a tokio multi-thread runtime; on WASM it uses `wasm-bindgen-futures` (tokio `sync` only). Keep handler logic runtime-agnostic.
+
+GUI source split: `app.rs` (eframe app state/update loop) → `views/` (egui rendering) and `handlers/` (worker-side command processing). The `viewer.rs`/`ViewerState` is gated behind the `pdf-viewer` feature.
+
+### pdf-impose structure
+
+Domain logic is layered: `layout/` computes page placement (arrangement, page order, creep, slots, spreads) independent of PDF I/O; `impose/` performs the actual PDF assembly (signature/simple/cascade strategies, page sources, sheet building); `marks.rs` draws printer's marks; `stats.rs` computes statistics; `preview.rs` renders previews; `options.rs`/`types.rs` define the public config surface. Layout is unit-tested in `src/layout/tests/`; cross-cutting behavior is tested in `tests/`.
+
+### Platform matrix
+
+- Desktop (macOS/Linux/Windows): both CLI and GUI; GUI includes the PDFium-backed viewer.
+- Web (WASM): GUI only, no viewer.
+- All non-viewer functionality must work on all platforms. The PDF viewer is the one feature-gated, desktop-only capability.
+
+## Terminology (print/bookbinding domain)
+
+- **Sheet**: a physical sheet of paper. **Printer Page**: one side of a sheet as printed.
+- **Page**: one side of printed content. **Book Page**: one side of a leaf — multiple book pages fit on one printer page in signature binding.
+- **Leaf**: front and back of a single piece of paper. **Recto**: front of a leaf. **Verso**: back of a leaf.
+- **Signature**: a collated set of folded pages. **Book**: signatures bound together.
+- **Spine**: the bound back of a book; also the fold line of a signature. **Spread**: verso + recto aligned with the spine in the middle.
+
+## Development guidelines
+
+1. Be concise, correct, direct.
+2. Shared logic goes in library crates, never in the CLI/GUI apps.
+3. Responsive UIs only — async + channels, never block the UI thread.
+4. Modular design: with any major change, ask whether a file should be split or logic extracted into a (reusable) crate.
+5. **There is no stable API.** Always favor better design over preserving existing signatures. When a new system replaces an old one, delete the old one — don't leave both.
+6. Never use dead/unmaintained crates; prefer the latest version.
+7. **Never silence clippy with `#[allow(...)]`** — fix the underlying code. Workspace-level allows in root `Cargo.toml` are a temporary debt to be eliminated (see the TODO there); do not add new ones.
+
+## Planning requirements
+
+Every implementation plan must address three sections:
+
+1. **DRY** — identify duplication to reduce and existing abstractions to reuse; consolidate patterns already present elsewhere.
+2. **Best practices** — improve adherence to codebase conventions and Rust idioms; flag and propose fixes for anti-patterns the change touches.
+3. **Usefulness for printers and bookbinders** — evaluate from the perspective of real print production; ensure terminology, defaults, and behavior match professional workflows.
+
+## Notes
+
+- PDFium is downloaded automatically by the `print-junk-gui` build script (chromium/7543) into `vendor/pdfium/`. To force re-download: `rm -rf vendor/pdfium && cargo clean -p print-junk-gui`.
+- Releases are tag-driven: bump version in root `Cargo.toml` `[workspace.package]`, then push a `vX.Y.Z` tag — the GitHub release workflow builds all platforms. See `INSTALL.md` for runtime/build dependencies.
+- `Imposition Details.md` contains in-depth reference on imposition math and arrangements.
