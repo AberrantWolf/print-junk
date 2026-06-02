@@ -1,6 +1,7 @@
 use crate::options::FlashcardOptions;
 use crate::types::{Flashcard, FlashcardError, Result};
 use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use pdf_units::{mm_to_pt, pt_to_mm};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path::Path;
@@ -20,14 +21,6 @@ pub async fn generate_pdf(
     tokio::fs::write(&output_path, bytes).await?;
 
     Ok(())
-}
-
-fn mm_to_pt(mm: f32) -> f32 {
-    mm * 72.0 / 25.4
-}
-
-fn pt_to_mm(pt: f32) -> f32 {
-    pt * 25.4 / 72.0
 }
 
 /// Collect all unique glyphs used across all cards.

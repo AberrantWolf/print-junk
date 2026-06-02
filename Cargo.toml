@@ -4,12 +4,14 @@ members = [
     "crates/pdf-async-runtime",
     "crates/pdf-flashcards",
     "crates/pdf-impose",
+    "crates/pdf-typeset",
+    "crates/pdf-units",
     "crates/print-junk-cli",
     "crates/print-junk-gui",
 ]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 license = "MIT"
 authors = ["Scott Harper <scott@rynban.net>"]
@@ -20,8 +22,8 @@ lopdf = { version = "0.40", default-features = false }
 pdfium-render = { version = "0.8", default-features = false, features = ["pdfium_7543", "image"] }
 
 # GUI
-egui = "0.33"
-eframe = "0.33"
+egui = "0.34"
+eframe = "0.34"
 rfd = "0.17"
 
 # CLI

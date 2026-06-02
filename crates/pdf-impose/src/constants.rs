@@ -7,20 +7,9 @@
 // Unit Conversion
 // =============================================================================
 
-/// Points per millimeter (1 inch = 72 points, 1 inch = 25.4mm)
-pub const POINTS_PER_MM: f32 = 72.0 / 25.4; // ≈ 2.83465
-
-/// Convert millimeters to points
-#[inline]
-pub fn mm_to_pt(mm: f32) -> f32 {
-    mm * POINTS_PER_MM
-}
-
-/// Convert points to millimeters
-#[inline]
-pub fn pt_to_mm(pt: f32) -> f32 {
-    pt / POINTS_PER_MM
-}
+// Unit conversion lives in `pdf-units` (the shared, I/O-free units crate).
+// Re-exported here so existing `crate::constants::{mm_to_pt, …}` paths keep working.
+pub use pdf_units::{POINTS_PER_MM, mm_to_pt, pt_to_mm};
 
 // =============================================================================
 // Default Page Dimensions

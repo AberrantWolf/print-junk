@@ -374,7 +374,7 @@ impl ImpositionOptions {
 #[cfg(feature = "serde")]
 mod serde_impls {
     use super::{
-        BindingType, OutputFormat, PageArrangement, PaperSize, Rotation, ScalingMode, SplitMode,
+        BindingType, OutputFormat, PageArrangement, Rotation, ScalingMode, SplitMode,
     };
     use serde::{Deserialize, Serialize};
 
@@ -445,97 +445,7 @@ mod serde_impls {
         }
     }
 
-    impl Serialize for PaperSize {
-        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            use serde::ser::SerializeStruct;
-            match self {
-                PaperSize::A3 => serializer.serialize_str("A3"),
-                PaperSize::A4 => serializer.serialize_str("A4"),
-                PaperSize::A5 => serializer.serialize_str("A5"),
-                PaperSize::Letter => serializer.serialize_str("Letter"),
-                PaperSize::Legal => serializer.serialize_str("Legal"),
-                PaperSize::Tabloid => serializer.serialize_str("Tabloid"),
-                PaperSize::Custom {
-                    width_mm,
-                    height_mm,
-                } => {
-                    let mut s = serializer.serialize_struct("Custom", 2)?;
-                    s.serialize_field("width_mm", width_mm)?;
-                    s.serialize_field("height_mm", height_mm)?;
-                    s.end()
-                }
-            }
-        }
-    }
-
-    impl<'de> Deserialize<'de> for PaperSize {
-        fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de>,
-        {
-            use serde::de::{self, MapAccess, Visitor};
-            use std::fmt;
-
-            struct PaperSizeVisitor;
-
-            impl<'de> Visitor<'de> for PaperSizeVisitor {
-                type Value = PaperSize;
-
-                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("a paper size")
-                }
-
-                fn visit_str<E>(self, value: &str) -> std::result::Result<PaperSize, E>
-                where
-                    E: de::Error,
-                {
-                    match value {
-                        "A3" => Ok(PaperSize::A3),
-                        "A4" => Ok(PaperSize::A4),
-                        "A5" => Ok(PaperSize::A5),
-                        "Letter" => Ok(PaperSize::Letter),
-                        "Legal" => Ok(PaperSize::Legal),
-                        "Tabloid" => Ok(PaperSize::Tabloid),
-                        _ => Err(de::Error::unknown_variant(
-                            value,
-                            &["A3", "A4", "A5", "Letter", "Legal", "Tabloid", "Custom"],
-                        )),
-                    }
-                }
-
-                fn visit_map<M>(self, mut map: M) -> std::result::Result<PaperSize, M::Error>
-                where
-                    M: MapAccess<'de>,
-                {
-                    let mut width_mm = None;
-                    let mut height_mm = None;
-
-                    while let Some(key) = map.next_key::<String>()? {
-                        match key.as_str() {
-                            "width_mm" => width_mm = Some(map.next_value()?),
-                            "height_mm" => height_mm = Some(map.next_value()?),
-                            _ => {
-                                let _: serde::de::IgnoredAny = map.next_value()?;
-                            }
-                        }
-                    }
-
-                    match (width_mm, height_mm) {
-                        (Some(w), Some(h)) => Ok(PaperSize::Custom {
-                            width_mm: w,
-                            height_mm: h,
-                        }),
-                        _ => Err(de::Error::missing_field("width_mm or height_mm")),
-                    }
-                }
-            }
-
-            deserializer.deserialize_any(PaperSizeVisitor)
-        }
-    }
+    // `PaperSize`'s serde impl lives in `pdf-units` alongside the type.
 
     // Simple derive-based implementations for remaining types
     impl Serialize for OutputFormat {

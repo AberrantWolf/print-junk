@@ -1,23 +1,28 @@
 use eframe::egui;
 use pdf_async_runtime::PdfCommand;
-use pdf_flashcards::{MeasurementSystem, PaperType};
+use pdf_flashcards::MeasurementSystem;
+use pdf_units::PaperSize;
 use tokio::sync::mpsc;
 
 use super::ViewerState;
-use crate::ui_components::{MarginsEditor, SliderBuilder, SpacingEditor, enum_selector};
+use crate::ui_components::{
+    MarginsEditor, SliderBuilder, SpacingEditor, enum_selector, paper_size_picker,
+};
 
 mod flashcard_layout;
 use flashcard_layout::{FlashcardLayout, MaxValueType, convert_values, get_max_value};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SizingMode {
     Grid,     // Specify rows/columns, card size is calculated
     CardSize, // Specify card size, rows/columns are calculated
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct FlashcardState {
     pub csv_path: String,
-    pub paper_type: PaperType,
+    pub paper_size: PaperSize,
     pub measurement_system: MeasurementSystem,
     pub sizing_mode: SizingMode,
 
@@ -41,13 +46,16 @@ pub struct FlashcardState {
 
     pub font_size_pt: f32,
 
-    // Loaded flashcards
+    // Loaded flashcards (re-loaded from `csv_path`; not persisted).
+    #[serde(skip)]
     pub cards: Vec<pdf_flashcards::Flashcard>,
 
-    // Preview state
+    // Preview state (transient).
+    #[serde(skip)]
     pub preview_viewer: Option<ViewerState>,
 
-    // Track if we need to regenerate
+    // Track if we need to regenerate (transient).
+    #[serde(skip)]
     pub needs_regeneration: bool,
 }
 
@@ -56,7 +64,7 @@ impl Default for FlashcardState {
         let measurement_system = MeasurementSystem::Inches;
         Self {
             csv_path: String::new(),
-            paper_type: PaperType::Letter,
+            paper_size: PaperSize::Letter,
             measurement_system,
             sizing_mode: SizingMode::Grid,
             margin_top: 0.4,
@@ -79,17 +87,10 @@ impl Default for FlashcardState {
 
 impl FlashcardState {
     pub fn to_options(&self) -> pdf_flashcards::FlashcardOptions {
+        let (page_width_mm, page_height_mm) = self.paper_size.dimensions_mm();
         pdf_flashcards::FlashcardOptions {
-            page_width_mm: if self.paper_type == PaperType::Custom {
-                215.9
-            } else {
-                self.paper_type.dimensions_mm().0
-            },
-            page_height_mm: if self.paper_type == PaperType::Custom {
-                279.4
-            } else {
-                self.paper_type.dimensions_mm().1
-            },
+            page_width_mm,
+            page_height_mm,
             margin_top_mm: self.measurement_system.to_mm(self.margin_top),
             margin_bottom_mm: self.measurement_system.to_mm(self.margin_bottom),
             margin_left_mm: self.measurement_system.to_mm(self.margin_left),
@@ -133,7 +134,7 @@ impl FlashcardState {
 
     fn to_layout(&self) -> FlashcardLayout {
         FlashcardLayout {
-            paper_type: self.paper_type,
+            paper_size: self.paper_size,
             measurement_system: self.measurement_system,
             margin_top: self.margin_top,
             margin_bottom: self.margin_bottom,
@@ -154,8 +155,8 @@ pub fn show_flashcards(
     state: &mut FlashcardState,
     command_tx: &mpsc::UnboundedSender<PdfCommand>,
 ) {
-    egui::SidePanel::left("flashcard_controls")
-        .min_width(300.0)
+    egui::Panel::left("flashcard_controls")
+        .min_size(300.0)
         .show_inside(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("Flashcard Settings");
@@ -217,20 +218,7 @@ fn show_csv_section(
 }
 
 fn show_paper_section(ui: &mut egui::Ui, state: &mut FlashcardState) {
-    let paper_types = [
-        (PaperType::Letter, "Letter"),
-        (PaperType::Legal, "Legal"),
-        (PaperType::A4, "A4"),
-        (PaperType::A5, "A5"),
-    ];
-
-    if enum_selector(
-        ui,
-        "paper_type",
-        "Paper Type:",
-        &mut state.paper_type,
-        &paper_types,
-    ) {
+    if paper_size_picker(ui, "paper_size", "Paper Type:", &mut state.paper_size) {
         state.needs_regeneration = true;
     }
 
@@ -428,24 +416,15 @@ fn show_preview_area(
     state: &mut FlashcardState,
     command_tx: &mpsc::UnboundedSender<PdfCommand>,
 ) {
-    egui::CentralPanel::default().show_inside(ui, |ui| {
-        if state.preview_viewer.is_some() {
-            super::show_viewer(ui, &mut state.preview_viewer, command_tx);
-        } else if state.cards.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.vertical_centered(|ui| {
-                    ui.heading("No CSV Loaded");
-                    ui.label("Select a CSV file to begin");
-                });
-            });
+    let card_count = state.cards.len();
+    super::preview::show_preview_pane(ui, &mut state.preview_viewer, command_tx, None, |ui| {
+        if card_count == 0 {
+            ui.heading("No CSV Loaded");
+            ui.label("Select a CSV file to begin");
         } else {
-            ui.centered_and_justified(|ui| {
-                ui.vertical_centered(|ui| {
-                    ui.heading("Ready to Generate");
-                    ui.label(format!("{} flashcards loaded", state.cards.len()));
-                    ui.label("Click 'Generate Preview' to see the result");
-                });
-            });
+            ui.heading("Ready to Generate");
+            ui.label(format!("{card_count} flashcards loaded"));
+            ui.label("Click 'Generate Preview' to see the result");
         }
     });
 }

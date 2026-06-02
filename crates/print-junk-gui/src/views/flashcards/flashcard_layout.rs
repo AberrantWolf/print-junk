@@ -1,8 +1,9 @@
-use pdf_flashcards::{FlashcardOptions, MeasurementSystem, PaperType};
+use pdf_flashcards::{FlashcardOptions, MeasurementSystem};
+use pdf_units::PaperSize;
 
 /// Layout calculator for flashcard grid sizing
 pub struct FlashcardLayout {
-    pub paper_type: PaperType,
+    pub paper_size: PaperSize,
     pub measurement_system: MeasurementSystem,
     pub margin_top: f32,
     pub margin_bottom: f32,
@@ -69,17 +70,10 @@ impl FlashcardLayout {
 
     /// Convert to `FlashcardOptions` (all values in mm)
     fn to_options_mm(&self) -> FlashcardOptions {
+        let (page_width_mm, page_height_mm) = self.paper_size.dimensions_mm();
         FlashcardOptions {
-            page_width_mm: if self.paper_type == PaperType::Custom {
-                215.9
-            } else {
-                self.paper_type.dimensions_mm().0
-            },
-            page_height_mm: if self.paper_type == PaperType::Custom {
-                279.4
-            } else {
-                self.paper_type.dimensions_mm().1
-            },
+            page_width_mm,
+            page_height_mm,
             margin_top_mm: self.measurement_system.to_mm(self.margin_top),
             margin_bottom_mm: self.measurement_system.to_mm(self.margin_bottom),
             margin_left_mm: self.measurement_system.to_mm(self.margin_left),

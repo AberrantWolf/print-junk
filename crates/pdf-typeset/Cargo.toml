@@ -1,0 +1,23 @@
+[package]
+name = "pdf-typeset"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+pdf-units = { path = "../pdf-units" }
+serde = { workspace = true, features = ["derive"] }
+typst = "0.14"
+typst-pdf = "0.14"
+typst-as-lib = { version = "0.15", features = ["typst-kit-fonts"] }
+pulldown-cmark = { version = "0.13", default-features = false }
+fontdb = "0.23"
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

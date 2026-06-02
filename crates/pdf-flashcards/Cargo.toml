@@ -7,9 +7,11 @@ edition.workspace = true
 workspace = true
 
 [dependencies]
+pdf-units = { path = "../pdf-units" }
 lopdf.workspace = true
 ttf-parser.workspace = true
 csv.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "sync", "rt"] }
 log.workspace = true
+serde = { workspace = true, features = ["derive"] }

@@ -20,8 +20,8 @@ pub fn show_impose(
     state: &mut ImposeState,
     command_tx: &mpsc::UnboundedSender<PdfCommand>,
 ) {
-    egui::SidePanel::left("impose_controls")
-        .min_width(300.0)
+    egui::Panel::left("impose_controls")
+        .min_size(300.0)
         .show_inside(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("PDF Imposition");
@@ -79,35 +79,24 @@ fn show_preview_area(
     state: &mut ImposeState,
     command_tx: &mpsc::UnboundedSender<PdfCommand>,
 ) {
-    egui::CentralPanel::default().show_inside(ui, |ui| {
-        if state.preview_viewer.is_some() {
-            if let (Some(shown), Some(total)) = (
-                state.preview_signatures_shown,
-                state.preview_total_signatures,
-            ) && shown < total
-            {
-                ui.horizontal(|ui| {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(140, 180, 255),
-                        format!("Preview: showing {shown} of {total} signatures"),
-                    );
-                });
-            }
-            super::show_viewer(ui, &mut state.preview_viewer, command_tx);
-        } else if state.options.input_files.is_empty() {
-            ui.centered_and_justified(|ui| {
-                ui.vertical_centered(|ui| {
-                    ui.heading("No Input Files");
-                    ui.label("Add PDF files to begin");
-                });
-            });
+    let overlay = match (
+        state.preview_signatures_shown,
+        state.preview_total_signatures,
+    ) {
+        (Some(shown), Some(total)) if shown < total => {
+            Some(format!("Preview: showing {shown} of {total} signatures"))
+        }
+        _ => None,
+    };
+    let has_files = !state.options.input_files.is_empty();
+
+    super::preview::show_preview_pane(ui, &mut state.preview_viewer, command_tx, overlay, |ui| {
+        if has_files {
+            ui.heading("Ready to Generate");
+            ui.label("Click 'Generate Preview' to see the imposed layout");
         } else {
-            ui.centered_and_justified(|ui| {
-                ui.vertical_centered(|ui| {
-                    ui.heading("Ready to Generate");
-                    ui.label("Click 'Generate Preview' to see the imposed layout");
-                });
-            });
+            ui.heading("No Input Files");
+            ui.label("Add PDF files to begin");
         }
     });
 }

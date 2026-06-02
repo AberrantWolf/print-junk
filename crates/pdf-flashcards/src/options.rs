@@ -1,34 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PaperType {
-    Letter,
-    Legal,
-    A4,
-    A5,
-    Custom,
-}
-
-impl PaperType {
-    pub fn dimensions_mm(&self) -> (f32, f32) {
-        match self {
-            PaperType::Legal => (215.9, 355.6),
-            PaperType::A4 => (210.0, 297.0),
-            PaperType::A5 => (148.0, 210.0),
-            PaperType::Letter | PaperType::Custom => (215.9, 279.4),
-        }
-    }
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            PaperType::Letter => "Letter",
-            PaperType::Legal => "Legal",
-            PaperType::A4 => "A4",
-            PaperType::A5 => "A5",
-            PaperType::Custom => "Custom",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MeasurementSystem {
     Inches,
     Millimeters,

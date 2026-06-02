@@ -3,6 +3,8 @@ use std::path::PathBuf;
 // Re-export types from library crates
 pub use pdf_flashcards::{Flashcard, FlashcardOptions};
 pub use pdf_impose::{ImpositionOptions, ImpositionStatistics};
+#[cfg(not(target_arch = "wasm32"))]
+pub use pdf_typeset::{InputFormat, TypesetConfig, TypesetInput};
 
 /// Commands sent from UI to worker
 #[derive(Debug)]
@@ -58,6 +60,25 @@ pub enum PdfCommand {
     },
     ViewerClose {
         doc_id: DocumentId,
+    },
+    /// Typeset the input and return a preview PDF (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetGeneratePreview {
+        input: TypesetInput,
+        config: TypesetConfig,
+    },
+    /// Typeset the input and write the PDF to `output_path` (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetGenerate {
+        input: TypesetInput,
+        config: TypesetConfig,
+        output_path: PathBuf,
+    },
+    /// Typeset the input to a temp PDF and hand it off to the imposition mode.
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetSendToImpose {
+        input: TypesetInput,
+        config: TypesetConfig,
     },
 }
 
@@ -119,6 +140,22 @@ pub enum PdfUpdate {
     },
     ViewerClosed {
         doc_id: DocumentId,
+    },
+    /// A typeset preview PDF is ready (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetPreviewGenerated {
+        pdf_bytes: Vec<u8>,
+        page_count: usize,
+    },
+    /// A typeset PDF was written to `path` (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetComplete {
+        path: PathBuf,
+    },
+    /// A typeset PDF at `path` is ready to be loaded into the imposition mode.
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetReadyForImpose {
+        path: PathBuf,
     },
 }
 

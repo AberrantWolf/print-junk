@@ -30,6 +30,9 @@ cargo clippy --all-targets
 
 # Imposition example binaries (visual/format sanity checks)
 cargo run -p pdf-impose --example test_all_formats
+
+# Typesetting sample (writes a typeset PDF for visual checks)
+cargo run -p pdf-typeset --example sample -- /tmp/sample.pdf
 ```
 
 Note: `pdfium_render_test` (in `print-junk-gui`) requires the `pdf-viewer` feature and the vendored PDFium library; it is skipped under `--no-default-features`.
@@ -45,6 +48,8 @@ crates/
   pdf-async-runtime   PdfCommand / PdfUpdate channel message types (the contract between UI and worker)
   pdf-impose          Imposition library (the bulk of domain logic)
   pdf-flashcards      Flashcard PDF generation from CSV
+  pdf-typeset         Text (Plaintext/Markdown/HTML) → typeset PDF via Typst (desktop-only)
+  pdf-units           Shared paper sizes, orientation, margins, mm/pt conversions (I/O-free)
 ```
 
 ### GUI async model (important)
@@ -57,7 +62,9 @@ The GUI never blocks on PDF work. It follows a command/update channel pattern:
 - The command/update enums live in `pdf-async-runtime` so both sides depend on one shared contract.
 - On desktop the worker runs on a tokio multi-thread runtime; on WASM it uses `wasm-bindgen-futures` (tokio `sync` only). Keep handler logic runtime-agnostic.
 
-GUI source split: `app.rs` (eframe app state/update loop) → `views/` (egui rendering) and `handlers/` (worker-side command processing). The `viewer.rs`/`ViewerState` is gated behind the `pdf-viewer` feature.
+GUI source split: `app.rs` (eframe app state/update loop) → `views/` (egui rendering) and `handlers/` (worker-side command processing). The `viewer.rs`/`ViewerState` is gated behind the `pdf-viewer` feature. The Typesetting mode and project save/restore (`project.rs`) are desktop-only, gated with `cfg(not(target_arch = "wasm32"))` (Typst doesn't build for WASM); on the web build the Typesetting tab shows an "unavailable" message.
+
+Project save/restore: `app.rs` auto-persists every mode's settings to eframe storage (restored on launch) and supports explicit `.pjproj` files via the `☰` menu. Only settings and file *paths* are persisted — never file contents — so loaded files are re-read from their paths on restore.
 
 ### pdf-impose structure
 
@@ -65,9 +72,9 @@ Domain logic is layered: `layout/` computes page placement (arrangement, page or
 
 ### Platform matrix
 
-- Desktop (macOS/Linux/Windows): both CLI and GUI; GUI includes the PDFium-backed viewer.
-- Web (WASM): GUI only, no viewer.
-- All non-viewer functionality must work on all platforms. The PDF viewer is the one feature-gated, desktop-only capability.
+- Desktop (macOS/Linux/Windows): both CLI and GUI; GUI includes the PDFium-backed viewer and the Typst-backed typesetting mode.
+- Web (WASM): GUI only, no viewer and no typesetting.
+- Desktop-only capabilities: the PDFium viewer (`pdf-viewer` feature) and the Typesetting mode + project save/restore (`cfg(not(target_arch = "wasm32"))`, since Typst is a large native dependency). All other functionality must work on every platform.
 
 ## Terminology (print/bookbinding domain)
 

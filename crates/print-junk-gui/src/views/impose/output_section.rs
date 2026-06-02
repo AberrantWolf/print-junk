@@ -1,14 +1,19 @@
 use eframe::egui;
-use pdf_impose::{Orientation, OutputFormat, PaperSize, Rotation, ScalingMode};
+use pdf_impose::{Orientation, OutputFormat, Rotation, ScalingMode};
 
 use super::state::ImposeState;
-use crate::ui_components::{button_group, enum_selector};
+use crate::ui_components::{button_group, enum_selector, paper_size_picker};
 
 pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
     egui::CollapsingHeader::new("📐 Output Configuration")
         .default_open(true)
         .show(ui, |ui| {
-            if show_paper_size_selector(ui, &mut state.options.output_paper_size) {
+            if paper_size_picker(
+                ui,
+                "paper_size",
+                "Paper size:",
+                &mut state.options.output_paper_size,
+            ) {
                 state.needs_regeneration = true;
             }
             ui.add_space(5.0);
@@ -32,19 +37,6 @@ pub fn show(ui: &mut egui::Ui, state: &mut ImposeState) {
                 state.needs_regeneration = true;
             }
         });
-}
-
-fn show_paper_size_selector(ui: &mut egui::Ui, paper_size: &mut PaperSize) -> bool {
-    let paper_sizes = [
-        (PaperSize::Letter, "Letter"),
-        (PaperSize::Legal, "Legal"),
-        (PaperSize::Tabloid, "Tabloid"),
-        (PaperSize::A3, "A3"),
-        (PaperSize::A4, "A4"),
-        (PaperSize::A5, "A5"),
-    ];
-
-    enum_selector(ui, "paper_size", "Paper size:", paper_size, &paper_sizes)
 }
 
 fn show_orientation_selector(ui: &mut egui::Ui, orientation: &mut Orientation) -> bool {

@@ -1,19 +1,23 @@
 use eframe::egui;
 use pdf_async_runtime::{PdfCommand, PdfUpdate};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use crate::logger::AppLogger;
+use crate::startup::{Mode, StartupSettings};
 use crate::views::{
     FlashcardState, ImposeState, ViewerState, ZoomState, show_flashcards, show_impose, show_viewer,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::views::{TypesettingState, show_typesetting};
 
-#[derive(Default, PartialEq)]
-enum Mode {
-    #[default]
-    Viewer,
-    Flashcards,
-    Impose,
-}
+/// eframe storage key for [`StartupSettings`].
+const STARTUP_KEY: &str = "print_junk_startup";
+
+/// eframe storage key for the auto-persisted project (all modes' settings).
+#[cfg(not(target_arch = "wasm32"))]
+const PROJECT_KEY: &str = "print_junk_project";
 
 #[derive(Clone)]
 struct ProgressState {
@@ -24,6 +28,10 @@ struct ProgressState {
 
 pub struct PrintJunkApp {
     mode: Mode,
+
+    // Startup selector
+    startup: StartupSettings,
+    show_startup: bool,
 
     // Logging
     logger: AppLogger,
@@ -40,6 +48,8 @@ pub struct PrintJunkApp {
     flashcard_state: FlashcardState,
     viewer_state: Option<ViewerState>,
     impose_state: ImposeState,
+    #[cfg(not(target_arch = "wasm32"))]
+    typesetting_state: TypesettingState,
 
     // Runtime handle (native only)
     #[cfg(not(target_arch = "wasm32"))]
@@ -72,8 +82,15 @@ impl PrintJunkApp {
 
         log::info!("Print Junk GUI started");
 
-        Self {
-            mode: Mode::default(),
+        let startup = cc
+            .storage
+            .and_then(|s| eframe::get_value::<StartupSettings>(s, STARTUP_KEY))
+            .unwrap_or_default();
+
+        let mut app = Self {
+            mode: startup.initial_mode(),
+            show_startup: startup.should_show_on_launch(),
+            startup,
             logger,
             log_viewer_open: false,
             command_tx,
@@ -82,8 +99,12 @@ impl PrintJunkApp {
             flashcard_state: FlashcardState::default(),
             viewer_state: None,
             impose_state: ImposeState::default(),
+            typesetting_state: TypesettingState::default(),
             _tokio_handle: tokio_handle,
-        }
+        };
+        // Restore the last session's settings and re-load any referenced files.
+        app.restore_session(cc.storage);
+        app
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -111,8 +132,15 @@ impl PrintJunkApp {
 
         log::info!("Print Junk GUI started");
 
+        let startup = cc
+            .storage
+            .and_then(|s| eframe::get_value::<StartupSettings>(s, STARTUP_KEY))
+            .unwrap_or_default();
+
         Self {
-            mode: Mode::default(),
+            mode: startup.initial_mode(),
+            show_startup: startup.should_show_on_launch(),
+            startup,
             logger,
             log_viewer_open: false,
             command_tx,
@@ -123,10 +151,130 @@ impl PrintJunkApp {
             impose_state: ImposeState::default(),
         }
     }
+
+    /// Embedded mode preview viewers, each paired with a texture-debug label.
+    /// `PdfUpdate::ViewerPageRendered`/`ViewerClosed` are routed to whichever of
+    /// these owns the matching document. Add a new mode's preview here and the
+    /// rendering/close plumbing picks it up automatically.
+    fn preview_viewers_mut(&mut self) -> Vec<(&'static str, &mut Option<ViewerState>)> {
+        let mut viewers: Vec<(&'static str, &mut Option<ViewerState>)> = vec![
+            (
+                "flashcard_preview",
+                &mut self.flashcard_state.preview_viewer,
+            ),
+            ("impose_preview", &mut self.impose_state.preview_viewer),
+        ];
+        #[cfg(not(target_arch = "wasm32"))]
+        viewers.push((
+            "typeset_preview",
+            &mut self.typesetting_state.preview_viewer,
+        ));
+        viewers
+    }
+
+    /// Restore the auto-persisted project from eframe storage on launch.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restore_session(&mut self, storage: Option<&dyn eframe::Storage>) {
+        if let Some(project) =
+            storage.and_then(|s| eframe::get_value::<crate::project::AppProject>(s, PROJECT_KEY))
+        {
+            self.apply_project(project);
+        }
+    }
+
+    /// Replace every mode's settings with a loaded project, then re-load any
+    /// referenced files from their stored paths (contents are never persisted).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn apply_project(&mut self, project: crate::project::AppProject) {
+        // Flashcards: settings + re-load the CSV from its path.
+        self.flashcard_state = project.flashcards;
+        if !self.flashcard_state.csv_path.is_empty() {
+            let _ = self.command_tx.send(PdfCommand::FlashcardsLoadCsv {
+                input_path: PathBuf::from(self.flashcard_state.csv_path.clone()),
+            });
+        }
+
+        // Imposition: options carry the input PDF paths; refresh stats + preview.
+        self.impose_state.options = project.impose;
+        self.impose_state.needs_regeneration = true;
+        let _ = self.command_tx.send(PdfCommand::ImposeCalculateStats {
+            options: self.impose_state.options.clone(),
+        });
+
+        // Typesetting: settings + re-enumerate fonts + re-load the source file.
+        self.typesetting_state = project.typesetting;
+        self.typesetting_state.available_fonts = pdf_typeset::available_font_families();
+        if let Some(path) = self.typesetting_state.source_path.clone() {
+            match std::fs::read_to_string(&path) {
+                Ok(text) => {
+                    self.typesetting_state.source_text = text;
+                    self.typesetting_state.needs_regeneration = true;
+                }
+                Err(e) => log::warn!("Could not reload {}: {e}", path.display()),
+            }
+        }
+    }
+
+    /// Borrowed view of the current settings for serialization.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn project_ref(&self) -> crate::project::ProjectRef<'_> {
+        crate::project::ProjectRef {
+            flashcards: &self.flashcard_state,
+            impose: &self.impose_state.options,
+            typesetting: &self.typesetting_state,
+        }
+    }
+
+    /// Prompt for a path and save the current project to a `.pjproj` file.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn save_project_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Print Junk Project", &[crate::project::PROJECT_EXTENSION])
+            .set_file_name("project.pjproj")
+            .save_file()
+        {
+            match crate::project::write_file(&path, &self.project_ref()) {
+                Ok(()) => {
+                    log::info!("Saved project to {}", path.display());
+                    self.startup.push_recent_project(path);
+                }
+                Err(e) => log::error!("Failed to save project: {e}"),
+            }
+        }
+    }
+
+    /// Prompt for a `.pjproj` file and load it.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_project_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Print Junk Project", &[crate::project::PROJECT_EXTENSION])
+            .pick_file()
+        {
+            self.open_project_path(path);
+        }
+    }
+
+    /// Load a project from a known path (used by the dialog and the recent list).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_project_path(&mut self, path: PathBuf) {
+        match crate::project::read_file(&path) {
+            Ok(project) => {
+                self.apply_project(project);
+                self.startup.push_recent_project(path);
+                log::info!("Project loaded");
+            }
+            Err(e) => log::error!("Failed to open project: {e}"),
+        }
+    }
 }
 
 impl eframe::App for PrintJunkApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // egui 0.34 hands us a `Ui` instead of a `Context`. Most of the loop below
+        // still works against a `Context` (input, textures, floating windows), so
+        // take a cheap clone; panels are shown with `show_inside(ui, …)`.
+        let ctx = ui.ctx().clone();
+
         // Handle drag-and-drop routed by current mode
         let dropped: Vec<_> = ctx.input(|i| {
             i.raw
@@ -202,6 +350,7 @@ impl eframe::App for PrintJunkApp {
                                 .send(PdfCommand::FlashcardsLoadCsv { input_path: path });
                         }
                     }
+                    Mode::Typesetting => self.typesetting_state.open_file_dialog(),
                 }
             }
 
@@ -315,6 +464,34 @@ impl eframe::App for PrintJunkApp {
                 PdfUpdate::ImposeStatsCalculated { stats } => {
                     self.impose_state.stats = Some(stats);
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                PdfUpdate::TypesetPreviewGenerated {
+                    pdf_bytes,
+                    page_count,
+                } => {
+                    self.typesetting_state.preview_page_count = page_count;
+                    self.progress = None;
+                    // Reuse the shared viewer pipeline (preserves scroll/page/zoom).
+                    let _ = self.command_tx.send(PdfCommand::ViewerLoadBytes {
+                        pdf_bytes,
+                        page_count,
+                    });
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                PdfUpdate::TypesetComplete { path } => {
+                    log::info!("Typeset PDF → {}", path.display());
+                    self.progress = None;
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                PdfUpdate::TypesetReadyForImpose { path } => {
+                    log::info!("Sending typeset PDF to Impose: {}", path.display());
+                    if !self.impose_state.options.input_files.contains(&path) {
+                        self.impose_state.options.input_files.push(path);
+                        self.impose_state.needs_regeneration = true;
+                    }
+                    self.mode = Mode::Impose;
+                    self.progress = None;
+                }
                 PdfUpdate::Error { message } => {
                     log::error!("Error: {message}");
                     self.progress = None;
@@ -327,6 +504,12 @@ impl eframe::App for PrintJunkApp {
                         Mode::Flashcards => &mut self.flashcard_state.preview_viewer,
                         Mode::Viewer => &mut self.viewer_state,
                         Mode::Impose => &mut self.impose_state.preview_viewer,
+                        #[cfg(not(target_arch = "wasm32"))]
+                        Mode::Typesetting => &mut self.typesetting_state.preview_viewer,
+                        // Typesetting can't run on wasm, so it never loads a preview;
+                        // map to the standalone viewer to keep the match exhaustive.
+                        #[cfg(target_arch = "wasm32")]
+                        Mode::Typesetting => &mut self.viewer_state,
                     };
 
                     let (old_doc_id, page_to_render) = if let Some(existing) = viewer_ref {
@@ -403,13 +586,7 @@ impl eframe::App for PrintJunkApp {
                         }
                     }
 
-                    for (name, preview) in [
-                        (
-                            "flashcard_preview",
-                            &mut self.flashcard_state.preview_viewer,
-                        ),
-                        ("impose_preview", &mut self.impose_state.preview_viewer),
-                    ] {
+                    for (name, preview) in self.preview_viewers_mut() {
                         if let Some(state) = preview
                             && state.current_doc_id == Some(doc_id)
                         {
@@ -481,30 +658,69 @@ impl eframe::App for PrintJunkApp {
                         self.viewer_state = None;
                         log::info!("Closed PDF");
                     }
-                    if let Some(state) = &self.flashcard_state.preview_viewer
-                        && state.current_doc_id == Some(doc_id)
-                    {
-                        self.flashcard_state.preview_viewer = None;
-                    }
-                    if let Some(state) = &self.impose_state.preview_viewer
-                        && state.current_doc_id == Some(doc_id)
-                    {
-                        self.impose_state.preview_viewer = None;
+                    for (_, preview) in self.preview_viewers_mut() {
+                        if preview
+                            .as_ref()
+                            .is_some_and(|s| s.current_doc_id == Some(doc_id))
+                        {
+                            *preview = None;
+                        }
                     }
                 }
             }
         }
 
-        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut pending_open: Option<PathBuf> = None;
+
+        egui::Panel::top("menu").show_inside(ui, |ui| {
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.mode, Mode::Viewer, "📄 Viewer");
-                ui.selectable_value(&mut self.mode, Mode::Flashcards, "🃏 Flashcards");
-                ui.selectable_value(&mut self.mode, Mode::Impose, "📑 Impose");
+                ui.menu_button("☰", |ui| {
+                    if ui.button("Show Startup Selector").clicked() {
+                        self.show_startup = true;
+                        ui.close();
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        ui.separator();
+                        if ui.button("💾 Save Project…").clicked() {
+                            self.save_project_dialog();
+                            ui.close();
+                        }
+                        if ui.button("📂 Open Project…").clicked() {
+                            self.open_project_dialog();
+                            ui.close();
+                        }
+                        ui.menu_button("Recent Projects", |ui| {
+                            if self.startup.recent_projects.is_empty() {
+                                ui.label("(none)");
+                            }
+                            for path in &self.startup.recent_projects {
+                                let label = path.file_name().map_or_else(
+                                    || path.display().to_string(),
+                                    |n| n.to_string_lossy().into_owned(),
+                                );
+                                if ui.button(label).clicked() {
+                                    pending_open = Some(path.clone());
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
+                });
+                ui.separator();
+                crate::views::tab_bar::show_tabs(ui, &mut self.mode);
             });
         });
 
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(path) = pending_open {
+            self.open_project_path(path);
+        }
+
         // Status bar at bottom
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+        egui::Panel::bottom("status").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 // Show progress bar
                 if let Some(ref progress) = self.progress {
@@ -528,7 +744,7 @@ impl eframe::App for PrintJunkApp {
         egui::Window::new("Log Viewer")
             .open(&mut self.log_viewer_open)
             .default_size([800.0, 400.0])
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading("Application Logs");
                     if ui.button("Clear").clicked() {
@@ -593,10 +809,35 @@ impl eframe::App for PrintJunkApp {
                     });
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| match self.mode {
+        egui::CentralPanel::default().show_inside(ui, |ui| match self.mode {
             Mode::Viewer => show_viewer(ui, &mut self.viewer_state, &self.command_tx),
             Mode::Flashcards => show_flashcards(ui, &mut self.flashcard_state, &self.command_tx),
             Mode::Impose => show_impose(ui, &mut self.impose_state, &self.command_tx),
+            Mode::Typesetting => {
+                #[cfg(not(target_arch = "wasm32"))]
+                show_typesetting(ui, &mut self.typesetting_state, &self.command_tx);
+                #[cfg(target_arch = "wasm32")]
+                ui.centered_and_justified(|ui| {
+                    ui.label("Typesetting is only available in the desktop app.");
+                });
+            }
         });
+
+        if self.show_startup {
+            crate::startup::show_startup_modal(
+                &ctx,
+                &mut self.mode,
+                &mut self.startup,
+                &mut self.show_startup,
+            );
+        }
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.startup.last_mode = self.mode;
+        eframe::set_value(storage, STARTUP_KEY, &self.startup);
+        // Auto-persist all modes' settings (and file paths, not contents).
+        #[cfg(not(target_arch = "wasm32"))]
+        eframe::set_value(storage, PROJECT_KEY, &self.project_ref());
     }
 }

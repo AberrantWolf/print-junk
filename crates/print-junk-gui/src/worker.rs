@@ -182,5 +182,46 @@ async fn process_command(
         | PdfCommand::ViewerClose { .. } => {
             handlers::viewer::handle_viewer_unavailable(update_tx).await;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetGeneratePreview {
+            mut input,
+            mut config,
+        } => {
+            // Typst compilation is slow; keep only the most recent preview request.
+            while let Ok(next_cmd) = command_rx.try_recv() {
+                if let PdfCommand::TypesetGeneratePreview {
+                    input: new_input,
+                    config: new_config,
+                } = next_cmd
+                {
+                    log::debug!("Discarding queued typeset preview, using newer request");
+                    input = new_input;
+                    config = new_config;
+                } else {
+                    Box::pin(process_command(
+                        next_cmd,
+                        impose_doc_store,
+                        #[cfg(feature = "pdf-viewer")]
+                        viewer_state,
+                        command_rx,
+                        update_tx,
+                    ))
+                    .await;
+                }
+            }
+            handlers::typesetting::handle_generate_preview(input, config, update_tx).await;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetGenerate {
+            input,
+            config,
+            output_path,
+        } => {
+            handlers::typesetting::handle_generate(input, config, output_path, update_tx).await;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetSendToImpose { input, config } => {
+            handlers::typesetting::handle_send_to_impose(input, config, update_tx).await;
+        }
     }
 }
