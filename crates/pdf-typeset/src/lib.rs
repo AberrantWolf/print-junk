@@ -12,7 +12,8 @@ mod markup;
 mod template;
 
 pub use config::{
-    BreakPosition, FontChoice, InputFormat, PageBreakRule, TypesetConfig, TypesetInput,
+    BreakPosition, Color, FontChoice, HAlign, HeadingStyle, InputFormat, PageBreakRule,
+    TableBorder, TableStyle, TypesetConfig, TypesetInput,
 };
 
 use typst::layout::PagedDocument;
@@ -57,7 +58,7 @@ pub fn typeset(input: &TypesetInput, config: &TypesetConfig) -> Result<Vec<u8>, 
         }
     }
 
-    let body = markup::to_typst_body(input, &effective.page_breaks);
+    let body = markup::to_typst_body(input, &effective.page_breaks, effective.smart_punctuation);
     let source = template::build_source(&effective, &body);
     compile_to_pdf(&source)
 }

@@ -3,27 +3,34 @@
 
 use std::fmt::Write as _;
 
-use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{
+    Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
+};
 
 use crate::config::{BreakPosition, InputFormat, PageBreakRule, TypesetInput};
 
 /// Characters that carry markup meaning in Typst and must be backslash-escaped
-/// when emitting literal text.
+/// when emitting literal text. Brackets are included so literal `[`/`]` don't
+/// open or close content blocks (notably inside table cells and links).
 const INLINE_SPECIALS: &[char] = &[
-    '\\', '`', '*', '_', '#', '$', '<', '>', '@', '~', '=', '-', '+',
+    '\\', '`', '*', '_', '#', '$', '<', '>', '@', '~', '=', '-', '+', '[', ']',
 ];
 
 /// Convert an input document to a Typst body, inserting `#pagebreak()` at the
-/// boundaries produced by `rules`.
-pub fn to_typst_body(input: &TypesetInput, rules: &[PageBreakRule]) -> String {
+/// boundaries produced by `rules`. `smart` enables Markdown smart punctuation
+/// (typographic dashes/ellipses); quote handling is set in the template.
+pub fn to_typst_body(input: &TypesetInput, rules: &[PageBreakRule], smart: bool) -> String {
     let pages = paginate(&input.text, rules);
-    let chunks: Vec<String> = pages.iter().map(|p| convert(p, input.format)).collect();
+    let chunks: Vec<String> = pages
+        .iter()
+        .map(|p| convert(p, input.format, smart))
+        .collect();
     chunks.join("\n\n#pagebreak()\n\n")
 }
 
-fn convert(text: &str, format: InputFormat) -> String {
+fn convert(text: &str, format: InputFormat, smart: bool) -> String {
     match format {
-        InputFormat::Markdown => markdown_to_typst(text),
+        InputFormat::Markdown => markdown_to_typst(text, smart),
         InputFormat::Plaintext => plaintext_to_typst(text),
         InputFormat::Html => plaintext_to_typst(&html_to_text(text)),
     }
@@ -139,19 +146,38 @@ fn heading_level_num(level: HeadingLevel) -> usize {
     }
 }
 
-fn markdown_to_typst(md: &str) -> String {
+fn markdown_to_typst(md: &str, smart: bool) -> String {
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TABLES);
+    if smart {
+        opts.insert(Options::ENABLE_SMART_PUNCTUATION);
+    }
     let parser = Parser::new_ext(md, opts);
 
     let mut out = String::new();
     // For each open list: the running ordered index, or None for a bullet list.
     let mut list_stack: Vec<Option<u64>> = Vec::new();
     let mut in_code_block = false;
+    // Set while accumulating a Markdown table; cells contain only inline content.
+    let mut table: Option<TableBuilder> = None;
 
     for event in parser {
+        // Inside a table, inline content is routed into the current cell and the
+        // structural events build up the grid; everything else is suppressed.
+        if let Some(tb) = table.as_mut() {
+            if tb.handle(&event) {
+                continue;
+            }
+            // End(Table) falls through here so we can flush and clear the state.
+            if matches!(event, Event::End(TagEnd::Table)) {
+                out.push_str(&table.take().expect("in table").render());
+                continue;
+            }
+        }
+
         match event {
+            Event::Start(Tag::Table(aligns)) => table = Some(TableBuilder::new(aligns)),
             Event::Start(Tag::Heading { level, .. }) => {
                 out.push('\n');
                 for _ in 0..heading_level_num(level) {
@@ -242,6 +268,132 @@ fn escape_url(url: &str) -> String {
 }
 
 // =============================================================================
+// Markdown tables → Typst `#table`
+// =============================================================================
+
+/// Accumulates a Markdown table's cells, then renders a Typst `#table`. Cell
+/// content is inline-only Typst markup; visual styling (borders, header shading,
+/// zebra striping) is applied globally by the template's `#set table` rules.
+struct TableBuilder {
+    aligns: Vec<Alignment>,
+    rows: Vec<Vec<String>>,
+    cur_row: Vec<String>,
+    cur_cell: String,
+    /// Number of leading rows that form the header (wrapped in `table.header`).
+    header_rows: usize,
+}
+
+impl TableBuilder {
+    fn new(aligns: Vec<Alignment>) -> Self {
+        Self {
+            aligns,
+            rows: Vec::new(),
+            cur_row: Vec::new(),
+            cur_cell: String::new(),
+            header_rows: 0,
+        }
+    }
+
+    /// Feed one parser event, routing inline content into the current cell and
+    /// building up the grid from the structural events. Returns `true` if the
+    /// event was consumed; only `End(Table)` returns `false`, signalling the
+    /// caller to flush and render. Structural row/head starts and any stray
+    /// events fall through the catch-all (consumed, no effect).
+    fn handle(&mut self, event: &Event) -> bool {
+        match event {
+            Event::End(TagEnd::Table) => return false, // caller flushes and renders
+            Event::End(TagEnd::TableHead) => {
+                self.finish_row();
+                self.header_rows = self.rows.len();
+            }
+            Event::End(TagEnd::TableRow) => self.finish_row(),
+            Event::Start(Tag::TableCell) => self.cur_cell.clear(),
+            Event::End(TagEnd::TableCell) => self.finish_cell(),
+
+            // Inline content routed into the current cell.
+            Event::Text(t) => self.cur_cell.push_str(&escape_inline(t)),
+            Event::Code(t) => {
+                self.cur_cell.push('`');
+                self.cur_cell.push_str(t);
+                self.cur_cell.push('`');
+            }
+            Event::Start(Tag::Emphasis) | Event::End(TagEnd::Emphasis) => self.cur_cell.push('_'),
+            Event::Start(Tag::Strong) | Event::End(TagEnd::Strong) => self.cur_cell.push('*'),
+            Event::Start(Tag::Strikethrough) => self.cur_cell.push_str("#strike["),
+            Event::End(TagEnd::Strikethrough | TagEnd::Link) => self.cur_cell.push(']'),
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                let _ = write!(self.cur_cell, "#link(\"{}\")[", escape_url(dest_url));
+            }
+            Event::SoftBreak | Event::HardBreak => self.cur_cell.push(' '),
+            _ => {}
+        }
+        true
+    }
+
+    fn finish_cell(&mut self) {
+        let cell = std::mem::take(&mut self.cur_cell);
+        self.cur_row.push(cell.trim().to_string());
+    }
+
+    fn finish_row(&mut self) {
+        if !self.cur_row.is_empty() {
+            self.rows.push(std::mem::take(&mut self.cur_row));
+        }
+    }
+
+    fn render(&self) -> String {
+        let cols = self
+            .aligns
+            .len()
+            .max(self.rows.iter().map(Vec::len).max().unwrap_or(0))
+            .max(1);
+
+        let mut s = String::from("\n#table(\n");
+        let _ = writeln!(s, "  columns: {cols},");
+
+        s.push_str("  align: (");
+        for i in 0..cols {
+            let a = self.aligns.get(i).copied().unwrap_or(Alignment::None);
+            s.push_str(align_to_typst(a));
+            if i + 1 < cols {
+                s.push_str(", ");
+            }
+        }
+        s.push_str("),\n");
+
+        let header_n = self.header_rows.min(self.rows.len());
+        if header_n > 0 {
+            s.push_str("  table.header(\n");
+            for row in &self.rows[..header_n] {
+                push_cells(&mut s, row);
+            }
+            s.push_str("  ),\n");
+        }
+        for row in &self.rows[header_n..] {
+            push_cells(&mut s, row);
+        }
+        s.push_str(")\n\n");
+        s
+    }
+}
+
+fn push_cells(s: &mut String, row: &[String]) {
+    s.push_str("  ");
+    for cell in row {
+        let _ = write!(s, "[{cell}], ");
+    }
+    s.push('\n');
+}
+
+fn align_to_typst(a: Alignment) -> &'static str {
+    match a {
+        Alignment::Left | Alignment::None => "left",
+        Alignment::Center => "center",
+        Alignment::Right => "right",
+    }
+}
+
+// =============================================================================
 // HTML → text (basic; structured HTML support is a follow-up)
 // =============================================================================
 
@@ -290,4 +442,41 @@ fn decode_entities(s: &str) -> String {
         .replace("&#39;", "'")
         .replace("&apos;", "'")
         .replace("&nbsp;", " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_table_becomes_typst_table() {
+        let md = "\
+| Name | Qty |
+|:-----|----:|
+| Ink  | 3   |
+| Paper| 12  |
+";
+        let out = markdown_to_typst(md, false);
+        assert!(out.contains("#table("), "expected a #table call:\n{out}");
+        assert!(out.contains("columns: 2"), "two columns expected:\n{out}");
+        // Left/right alignment carried from the `:---`/`---:` delimiter row.
+        assert!(out.contains("align: (left, right)"), "alignment:\n{out}");
+        // Header row is wrapped so the template can style it.
+        assert!(out.contains("table.header("), "header wrapper:\n{out}");
+        assert!(out.contains("[Name]") && out.contains("[Paper]"), "cells:\n{out}");
+    }
+
+    #[test]
+    fn table_cell_brackets_are_escaped() {
+        let md = "| A |\n|---|\n| x[y] |\n";
+        let out = markdown_to_typst(md, false);
+        assert!(out.contains("x\\[y\\]"), "brackets must be escaped:\n{out}");
+    }
+
+    #[test]
+    fn smart_punctuation_toggles_dashes() {
+        let plain = markdown_to_typst("a -- b", false);
+        let smart = markdown_to_typst("a -- b", true);
+        assert_ne!(plain, smart, "smart punctuation should change the output");
+    }
 }

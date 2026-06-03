@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use eframe::egui;
 use pdf_async_runtime::PdfCommand;
 use pdf_typeset::{
-    BreakPosition, InputFormat, PageBreakRule, TypesetConfig, TypesetInput, available_font_families,
+    BreakPosition, Color, HAlign, InputFormat, PageBreakRule, TableBorder, TypesetConfig,
+    TypesetInput, available_font_families,
 };
 use pdf_units::Orientation;
 use tokio::sync::mpsc;
@@ -29,6 +30,10 @@ pub struct TypesettingState {
     #[serde(skip)]
     pub available_fonts: Vec<String>,
 
+    /// Which heading level (1..=6) the headings section is currently editing.
+    #[serde(skip)]
+    pub heading_edit_level: u8,
+
     #[serde(skip)]
     pub preview_viewer: Option<ViewerState>,
     #[serde(skip)]
@@ -45,6 +50,7 @@ impl Default for TypesettingState {
             format: InputFormat::Markdown,
             config: TypesetConfig::default(),
             available_fonts: available_font_families(),
+            heading_edit_level: 1,
             preview_viewer: None,
             needs_regeneration: false,
             preview_page_count: 0,
@@ -109,9 +115,15 @@ pub fn show_typesetting(
                 section_gap(ui);
                 fonts_section(ui, state);
                 section_gap(ui);
+                headings_section(ui, state);
+                section_gap(ui);
                 spacing_section(ui, state);
                 section_gap(ui);
+                tables_section(ui, state);
+                section_gap(ui);
                 page_breaks_section(ui, state);
+                section_gap(ui);
+                document_section(ui, state);
                 section_gap(ui);
                 actions_section(ui, state, command_tx);
 
@@ -241,21 +253,212 @@ fn margins_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
 }
 
 fn fonts_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
-    ui.label("Fonts:");
+    ui.label("Body text:");
     let mut changed = false;
-    changed |= font_family_picker(ui, "ts_body_font", "Body", &mut state.config.body_font.family, &state.available_fonts);
-    changed |= labeled_drag_clamped(ui, "Body size", &mut state.config.body_font.size_pt, 5.0..=32.0, " pt");
     changed |= font_family_picker(
         ui,
-        "ts_heading_font",
-        "Heading",
-        &mut state.config.heading_font.family,
+        "ts_body_font",
+        "Font",
+        &mut state.config.body_font.family,
         &state.available_fonts,
     );
-    changed |= labeled_drag_clamped(ui, "Heading size", &mut state.config.heading_font.size_pt, 6.0..=48.0, " pt");
+    changed |= labeled_drag_clamped(
+        ui,
+        "Size",
+        &mut state.config.body_font.size_pt,
+        5.0..=32.0,
+        " pt",
+    );
+    changed |= color_row(ui, "Color", &mut state.config.body_color);
+    changed |= color_row(ui, "Link color", &mut state.config.link_color);
+    changed |= color_row(ui, "Code color", &mut state.config.code_color);
+    changed |= optional_color_row(
+        ui,
+        "Code background",
+        &mut state.config.code_background,
+        Color::new(244, 244, 244),
+    );
     if changed {
         state.needs_regeneration = true;
     }
+}
+
+/// Per-level heading editor: pick a level, then edit its style. Only the
+/// selected level's controls are shown to keep the panel compact.
+fn headings_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
+    ui.label("Headings:");
+
+    // Clamp first — a skipped/zeroed value on restore must not underflow below.
+    state.heading_edit_level = state.heading_edit_level.clamp(1, 6);
+    let mut changed = false;
+
+    ui.horizontal(|ui| {
+        for lvl in 1..=6u8 {
+            if ui
+                .selectable_label(state.heading_edit_level == lvl, format!("H{lvl}"))
+                .clicked()
+            {
+                state.heading_edit_level = lvl;
+            }
+        }
+    });
+
+    let lvl = state.heading_edit_level;
+    let available = &state.available_fonts;
+    let st = &mut state.config.heading_styles[usize::from(lvl - 1)];
+
+    changed |= font_family_picker(ui, "ts_heading_font", "Font", &mut st.family, available);
+    changed |= labeled_drag_clamped(ui, "Size", &mut st.size_pt, 6.0..=72.0, " pt");
+    ui.horizontal(|ui| {
+        changed |= ui.checkbox(&mut st.bold, "Bold").changed();
+        changed |= ui.checkbox(&mut st.italic, "Italic").changed();
+    });
+    changed |= color_row(ui, "Color", &mut st.color);
+
+    let aligns = [
+        (HAlign::Left, "Left"),
+        (HAlign::Center, "Center"),
+        (HAlign::Right, "Right"),
+    ];
+    changed |= enum_selector(ui, "ts_heading_align", "Align", &mut st.align, &aligns);
+    changed |= labeled_drag_clamped(ui, "Space above", &mut st.space_above_mm, 0.0..=40.0, " mm");
+    changed |= labeled_drag_clamped(ui, "Space below", &mut st.space_below_mm, 0.0..=40.0, " mm");
+    changed |= ui
+        .checkbox(&mut st.start_new_page, "Start on new page (chapter)")
+        .changed();
+
+    if changed {
+        state.needs_regeneration = true;
+    }
+}
+
+fn tables_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
+    ui.label("Tables:");
+    let t = &mut state.config.table;
+    let mut changed = false;
+
+    changed |= ui.checkbox(&mut t.header_bold, "Bold header row").changed();
+    changed |= optional_color_row(ui, "Header fill", &mut t.header_fill, Color::new(230, 230, 230));
+    changed |= optional_color_row(ui, "Zebra striping", &mut t.zebra_fill, Color::new(244, 244, 244));
+
+    let borders = [
+        (TableBorder::All, "All"),
+        (TableBorder::Horizontal, "Horizontal"),
+        (TableBorder::None, "None"),
+    ];
+    changed |= enum_selector(ui, "ts_table_border", "Borders", &mut t.border, &borders);
+    changed |= labeled_drag_clamped(ui, "Border width", &mut t.border_width_pt, 0.0..=3.0, " pt");
+    changed |= color_row(ui, "Border color", &mut t.border_color);
+    changed |= labeled_drag_clamped(ui, "Cell padding", &mut t.cell_padding_mm, 0.0..=8.0, " mm");
+
+    if changed {
+        state.needs_regeneration = true;
+    }
+}
+
+fn document_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
+    ui.label("Document & front matter:");
+    let c = &mut state.config;
+    let mut changed = false;
+
+    ui.horizontal(|ui| {
+        ui.label("Title");
+        changed |= ui
+            .add(
+                egui::TextEdit::singleline(&mut c.doc_title)
+                    .desired_width(180.0)
+                    .hint_text("(none)"),
+            )
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label("Author");
+        changed |= ui
+            .add(egui::TextEdit::singleline(&mut c.doc_author).desired_width(180.0))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label("Keywords");
+        changed |= ui
+            .add(
+                egui::TextEdit::singleline(&mut c.doc_keywords)
+                    .desired_width(180.0)
+                    .hint_text("comma, separated"),
+            )
+            .changed();
+    });
+    ui.label(
+        egui::RichText::new("A title page is added when a title is set.")
+            .small()
+            .weak(),
+    );
+
+    changed |= ui
+        .checkbox(&mut c.generate_toc, "Table of contents")
+        .changed();
+    if c.generate_toc {
+        changed |= labeled_drag_clamped(ui, "TOC depth", &mut c.toc_depth, 1..=6, "");
+    }
+    changed |= ui
+        .checkbox(&mut c.smart_punctuation, "Smart punctuation")
+        .on_hover_text("Curly quotes and typographic dashes")
+        .changed();
+    ui.horizontal(|ui| {
+        ui.label("Language");
+        changed |= ui
+            .add(
+                egui::TextEdit::singleline(&mut c.lang)
+                    .desired_width(60.0)
+                    .hint_text("en"),
+            )
+            .on_hover_text("BCP-47 code; controls hyphenation and quotes")
+            .changed();
+    });
+
+    if changed {
+        state.needs_regeneration = true;
+    }
+}
+
+/// A labeled sRGB color swatch button. Returns `true` if the color changed.
+fn color_row(ui: &mut egui::Ui, label: &str, color: &mut Color) -> bool {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let mut rgb = [color.r, color.g, color.b];
+        if ui.color_edit_button_srgb(&mut rgb).changed() {
+            *color = Color::new(rgb[0], rgb[1], rgb[2]);
+            true
+        } else {
+            false
+        }
+    })
+    .inner
+}
+
+/// A checkbox that toggles an optional color on/off, with a swatch when enabled.
+/// `default` seeds the color when first enabled.
+fn optional_color_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Option<Color>,
+    default: Color,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        let mut enabled = value.is_some();
+        if ui.checkbox(&mut enabled, label).changed() {
+            *value = enabled.then_some(default);
+            changed = true;
+        }
+        if let Some(color) = value.as_mut() {
+            let mut rgb = [color.r, color.g, color.b];
+            if ui.color_edit_button_srgb(&mut rgb).changed() {
+                *color = Color::new(rgb[0], rgb[1], rgb[2]);
+                changed = true;
+            }
+        }
+    });
+    changed
 }
 
 /// A combo box over installed font families, with a leading "(default)" entry

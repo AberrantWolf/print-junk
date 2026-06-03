@@ -2,7 +2,7 @@
 //!
 //! Run with: `cargo run -p pdf-typeset --example sample -- /tmp/sample.pdf`
 
-use pdf_typeset::{InputFormat, TypesetConfig, TypesetInput, typeset};
+use pdf_typeset::{Color, InputFormat, TypesetConfig, TypesetInput, typeset};
 
 const DOC: &str = "\
 # The Typesetting Sample
@@ -28,6 +28,16 @@ the ATX heading below, not left at the default size.
 
 > A block quote, set apart from the body.
 
+### A Table
+
+| Material   | Qty | Unit cost |
+|:-----------|:---:|----------:|
+| Book board | 2   | \\$1.20    |
+| Bookcloth  | 1   | \\$4.50    |
+| Headband   | 2   | \\$0.30    |
+
+A [link to typst.app](https://typst.app) and some `inline code` round it out.
+
 -----
 
 # A New Chapter
@@ -46,7 +56,19 @@ fn main() {
         format: InputFormat::Markdown,
     };
 
-    match typeset(&input, &TypesetConfig::default()) {
+    // Exercise the new features: title page, TOC, a colored H1, and a chapter
+    // that starts on a fresh page.
+    let mut config = TypesetConfig {
+        doc_title: "The Typesetting Sample".to_string(),
+        doc_author: "print-junk".to_string(),
+        doc_keywords: "typesetting, bookbinding, sample".to_string(),
+        generate_toc: true,
+        ..TypesetConfig::default()
+    };
+    config.heading_styles[0].color = Color::new(40, 70, 130);
+    config.heading_styles[0].start_new_page = true;
+
+    match typeset(&input, &config) {
         Ok(pdf) => {
             std::fs::write(&out, &pdf).expect("write pdf");
             println!("Wrote {} bytes to {out}", pdf.len());
