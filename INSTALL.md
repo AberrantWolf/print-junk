@@ -68,7 +68,10 @@ You may need the [Visual C++ Redistributable](https://learn.microsoft.com/en-us/
 cargo build --release
 ```
 
-The build script automatically downloads [PDFium](https://github.com/bblanchon/pdfium-binaries) (chromium/7543) to `vendor/pdfium/` and configures linking. No manual setup needed.
+PDFium is vendored automatically by the shared `junk-libs-pdfium` crate's build
+script, which downloads [PDFium](https://github.com/bblanchon/pdfium-binaries)
+(chromium/7763) into its build output directory and binds it at runtime. No
+manual setup needed.
 
 To build without the PDF viewer:
 
@@ -91,8 +94,8 @@ sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
 ### PDFium download fails during build
 
 1. Check your internet connection
-2. Try building again — the download is cached after the first success
-3. As a last resort, manually download the correct archive from [pdfium-binaries releases](https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7543) and extract it to `vendor/pdfium/` in the repository root
+2. Try building again — the download is cached in the build output after the first success
+3. As a last resort, manually download the correct archive from [pdfium-binaries releases](https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7763)
 
 ### "Failed to load PDFium" at runtime
 
@@ -100,13 +103,12 @@ Make sure the PDFium library file (`libpdfium.dylib`, `libpdfium.so`, or `pdfium
 - **macOS .app**: bundled inside `Print Junk.app/Contents/Frameworks/`
 - **Linux AppImage**: bundled inside the AppImage
 - **Windows zip**: `pdfium.dll` must be in the same directory as `print-junk-gui.exe`
-- **From source**: automatically handled by the build script
+- **From source**: automatically handled by the `junk-libs-pdfium` build script
 
 ### Force re-download of PDFium
 
 ```bash
-rm -rf vendor/pdfium
-cargo clean -p print-junk-gui
+cargo clean -p junk-libs-pdfium
 cargo build --release
 ```
 

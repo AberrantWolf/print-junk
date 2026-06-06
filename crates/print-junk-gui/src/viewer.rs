@@ -3,29 +3,9 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-#[cfg(feature = "pdf-viewer")]
-use pdfium_render::prelude::*;
-
-/// Initialize Pdfium, trying the vendored library first, then falling back to system
-#[cfg(feature = "pdf-viewer")]
-pub fn init_pdfium() -> Result<Pdfium, PdfiumError> {
-    // Try to load from vendor directory (relative to workspace root)
-    // When running from cargo, the working directory is the workspace root
-    let vendor_path = std::env::current_dir().ok().and_then(|mut p| {
-        p.push("vendor/pdfium/lib");
-        if p.exists() { Some(p) } else { None }
-    });
-
-    if let Some(vendor_path) = vendor_path
-        && let Ok(binding) =
-            Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&vendor_path))
-    {
-        return Ok(Pdfium::new(binding));
-    }
-
-    // Fallback to system library or default search paths
-    Pdfium::bind_to_system_library().map(Pdfium::new)
-}
+// PDFium binding and page rendering live in the shared `junk-libs-pdfium` crate
+// (driven from `handlers::viewer`). This module keeps only the UI-agnostic render
+// *cache* and document registry — no PDFium types appear here.
 
 /// Cached page data
 #[cfg(feature = "pdf-viewer")]
@@ -43,16 +23,6 @@ type CacheKey = (DocumentId, usize, u32);
 #[cfg(feature = "pdf-viewer")]
 const MAX_CACHED_PAGES: usize = 50;
 
-/// Maximum render dimension in pixels (to prevent OOM at extreme zoom)
-#[cfg(feature = "pdf-viewer")]
-const MAX_RENDER_DIMENSION: i32 = 4096;
-
-/// Legacy render dimensions used when `zoom_level` is 0.0 (impose/flashcard previews)
-#[cfg(feature = "pdf-viewer")]
-const LEGACY_TARGET_WIDTH: i32 = 600;
-#[cfg(feature = "pdf-viewer")]
-const LEGACY_MAX_HEIGHT: i32 = 800;
-
 /// Quantize a zoom fraction to a discrete percentage for cache keys.
 /// Steps: every 25% from 25-100, every 50% from 100-400.
 pub fn quantize_zoom(zoom: f32) -> u32 {
@@ -65,28 +35,6 @@ pub fn quantize_zoom(zoom: f32) -> u32 {
         // Round to nearest 50
         ((clamped + 25) / 50 * 50) as u32
     }
-}
-
-/// Compute render dimensions for a given page size and zoom level.
-/// Returns (`target_width`, `max_height`) suitable for `PdfRenderConfig`.
-/// If zoom is 0.0, returns legacy fixed dimensions (600x800).
-#[cfg(feature = "pdf-viewer")]
-pub fn render_dimensions(page_width_pts: f32, page_height_pts: f32, zoom: f32) -> (i32, i32) {
-    if zoom <= 0.0 {
-        return (LEGACY_TARGET_WIDTH, LEGACY_MAX_HEIGHT);
-    }
-    let w = (page_width_pts * zoom).round() as i32;
-    let h = (page_height_pts * zoom).round() as i32;
-    (w.min(MAX_RENDER_DIMENSION), h.min(MAX_RENDER_DIMENSION))
-}
-
-/// Build a `PdfRenderConfig` for the given dimensions.
-#[cfg(feature = "pdf-viewer")]
-pub fn make_render_config(page_width_pts: f32, page_height_pts: f32, zoom: f32) -> PdfRenderConfig {
-    let (w, h) = render_dimensions(page_width_pts, page_height_pts, zoom);
-    PdfRenderConfig::new()
-        .set_target_width(w)
-        .set_maximum_height(h)
 }
 
 /// A document source: either a file path or in-memory PDF bytes

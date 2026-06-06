@@ -24,7 +24,12 @@ lopdf.workspace = true
 
 # PDF rendering + typesetting (not available on WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pdfium-render = { workspace = true, optional = true }
+# Shared PDFium render core (binding + render + text extraction). Vendors its own
+# PDFium binary via its build.rs, so print-junk no longer downloads or links it.
+# Fetched from GitHub automatically — no sibling clone needed. For local
+# co-development against a sibling junk-libs checkout, uncomment the `[patch]` in
+# the workspace-root Cargo.toml.
+junk-libs-pdfium = { git = "https://github.com/AberrantWolf/junk-libs", optional = true }
 pdf-typeset = { path = "../pdf-typeset" }
 pdf-import = { path = "../pdf-import" }
 base64 = "0.22"
@@ -32,16 +37,13 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 
 [features]
 default = ["pdf-viewer"]
-pdf-viewer = ["pdfium-render"]
+pdf-viewer = ["dep:junk-libs-pdfium"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
 tokio = { workspace = true, features = ["sync"] }
 
 [build-dependencies]
-ureq = { version = "2", features = ["native-tls"] }
-flate2 = "1"
-tar = "0.4"
 image = { workspace = true }
 icns = "0.4"
 

@@ -127,7 +127,12 @@ jobs:
           mkdir -p "$APP/Contents/Resources"
 
           cp "target/${{ matrix.target }}/release/print-junk-gui" "$APP/Contents/MacOS/"
-          cp "vendor/pdfium/lib/${{ matrix.lib_name }}" "$APP/Contents/Frameworks/"
+          # PDFium is vendored by junk-libs-pdfium into its build OUT_DIR (hashed
+          # path); locate it rather than the old vendor/ dir. instance() then finds
+          # it via ../Frameworks relative to the binary at runtime.
+          PDFIUM_LIB=$(find "target/${{ matrix.target }}/release/build" -path "*junk-libs-pdfium-*/out/pdfium/lib/${{ matrix.lib_name }}" | head -n1)
+          test -n "$PDFIUM_LIB" || { echo "::error::libpdfium not found in build output"; exit 1; }
+          cp "$PDFIUM_LIB" "$APP/Contents/Frameworks/"
           cp "crates/print-junk-gui/assets/icon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
           # Substitute version into Info.plist
@@ -197,7 +202,11 @@ jobs:
           mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib"
 
           cp "target/${{ matrix.target }}/release/print-junk-gui" "$APPDIR/usr/bin/"
-          cp "vendor/pdfium/lib/${{ matrix.lib_name }}" "$APPDIR/usr/lib/"
+          # PDFium is vendored by junk-libs-pdfium into its build OUT_DIR (hashed
+          # path); instance() finds it via ../lib relative to the binary at runtime.
+          PDFIUM_LIB=$(find "target/${{ matrix.target }}/release/build" -path "*junk-libs-pdfium-*/out/pdfium/lib/${{ matrix.lib_name }}" | head -n1)
+          test -n "$PDFIUM_LIB" || { echo "::error::libpdfium not found in build output"; exit 1; }
+          cp "$PDFIUM_LIB" "$APPDIR/usr/lib/"
           cp "crates/print-junk-gui/assets/print-junk-gui.desktop" "$APPDIR/"
           cp "crates/print-junk-gui/assets/icon-256.png" "$APPDIR/print-junk-gui.png"
 
@@ -223,7 +232,13 @@ jobs:
           $GuiDir = "Print-Junk-${Version}-${{ matrix.display_name }}"
           New-Item -ItemType Directory -Path $GuiDir
           Copy-Item "target\${{ matrix.target }}\release\print-junk-gui.exe" "$GuiDir\"
-          Copy-Item "vendor\pdfium\bin\pdfium.dll" "$GuiDir\"
+          # PDFium is vendored by junk-libs-pdfium into its build OUT_DIR (hashed
+          # path); instance() finds it beside the .exe at runtime.
+          $PdfiumDll = Get-ChildItem -Path "target\${{ matrix.target }}\release\build" -Recurse -Filter "pdfium.dll" |
+            Where-Object { $_.FullName -like "*junk-libs-pdfium-*\out\pdfium\bin\*" } |
+            Select-Object -First 1
+          if (-not $PdfiumDll) { throw "pdfium.dll not found in build output" }
+          Copy-Item $PdfiumDll.FullName "$GuiDir\"
           Compress-Archive -Path "$GuiDir\*" -DestinationPath "${GuiDir}.zip"
           echo "GUI_ARCHIVE=${GuiDir}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 

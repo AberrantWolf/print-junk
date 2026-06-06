@@ -3,23 +3,36 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 #[cfg(feature = "pdf-viewer")]
-use crate::viewer::{
-    CachedPage, DocumentSource, ViewerState, init_pdfium, make_render_config, quantize_zoom,
-};
+use crate::viewer::{CachedPage, DocumentSource, ViewerState, quantize_zoom};
 
+/// Render one page of a [`DocumentSource`] to RGBA bytes at `scale` (pixels per
+/// point), via the shared `junk-libs-pdfium` core. Returns the pixels, raster
+/// size, and the page's native point size. Runs inside `spawn_blocking`; the
+/// shared instance serializes the whole render sequence internally.
 #[cfg(feature = "pdf-viewer")]
-use pdfium_render::prelude::*;
-
-/// Load a PDF document from a `DocumentSource` using the given Pdfium instance.
-#[cfg(feature = "pdf-viewer")]
-fn load_document<'a>(
-    pdfium: &'a Pdfium,
+fn render_source_page(
     source: &DocumentSource,
-) -> Result<PdfDocument<'a>, PdfiumError> {
-    match source {
-        DocumentSource::File(path) => pdfium.load_pdf_from_file(path, None),
-        DocumentSource::Bytes(bytes) => pdfium.load_pdf_from_byte_vec(bytes.clone(), None),
-    }
+    page_index: usize,
+    scale: f32,
+) -> anyhow::Result<(Vec<u8>, usize, usize, f32, f32)> {
+    let pdfium = junk_libs_pdfium::instance()?;
+    let (image, (width_pts, height_pts)) = match source {
+        DocumentSource::File(path) => {
+            junk_libs_pdfium::render_page_bitmap(pdfium, path, page_index, scale)?
+        }
+        DocumentSource::Bytes(bytes) => {
+            junk_libs_pdfium::render_page_bitmap_from_bytes(pdfium, bytes, page_index, scale)?
+        }
+    };
+    let (width, height) = (image.width() as usize, image.height() as usize);
+    Ok((image.into_raw(), width, height, width_pts, height_pts))
+}
+
+/// Render scale (pixels per point) for a requested zoom fraction, treating the
+/// legacy `0.0` sentinel (and any non-positive value) as 100%.
+#[cfg(feature = "pdf-viewer")]
+fn render_scale(zoom_level: f32) -> f32 {
+    if zoom_level <= 0.0 { 1.0 } else { zoom_level }
 }
 
 #[cfg(feature = "pdf-viewer")]
@@ -30,22 +43,17 @@ pub async fn handle_load(
 ) {
     let path_clone = path.clone();
 
-    // Load PDF to get page count
+    // Load PDF to get page count (no rendering)
     match tokio::task::spawn_blocking(move || {
-        let pdfium = init_pdfium()?;
-        let document = pdfium.load_pdf_from_file(&path_clone, None)?;
-        let page_count = document.pages().len();
-        Ok::<_, PdfiumError>(page_count)
+        let pdfium = junk_libs_pdfium::instance()?;
+        junk_libs_pdfium::page_count(pdfium, &path_clone)
     })
     .await
     {
         Ok(Ok(page_count)) => {
             let doc_id = state.next_id();
             state.add_document(doc_id, path);
-            let _ = update_tx.send(PdfUpdate::ViewerLoaded {
-                doc_id,
-                page_count: page_count as usize,
-            });
+            let _ = update_tx.send(PdfUpdate::ViewerLoaded { doc_id, page_count });
         }
         Ok(Err(e)) => {
             let _ = update_tx.send(PdfUpdate::Error {
@@ -99,24 +107,9 @@ pub async fn handle_render_page(
         });
     } else if let Some(source) = state.get_document(doc_id).cloned() {
         // Not in cache, need to render
-        match tokio::task::spawn_blocking(move || {
-            let pdfium = init_pdfium()?;
-            let document = load_document(&pdfium, &source)?;
-            let page = document.pages().get(page_index as u16)?;
-
-            let page_width_pts = page.width().value;
-            let page_height_pts = page.height().value;
-
-            let config = make_render_config(page_width_pts, page_height_pts, zoom_level);
-
-            let bitmap = page.render_with_config(&config)?;
-            let rgba_data = bitmap.as_rgba_bytes().clone();
-            let width = bitmap.width() as usize;
-            let height = bitmap.height() as usize;
-
-            Ok::<_, PdfiumError>((rgba_data, width, height, page_width_pts, page_height_pts))
-        })
-        .await
+        let scale = render_scale(zoom_level);
+        match tokio::task::spawn_blocking(move || render_source_page(&source, page_index, scale))
+            .await
         {
             Ok(Ok((rgba_data, width, height, page_width_pts, page_height_pts))) => {
                 // Add to cache
@@ -179,26 +172,11 @@ pub async fn handle_prefetch_pages(
 
         if let Some(source) = state.get_document(doc_id).cloned() {
             // Render to cache silently (no UI update)
-            match tokio::task::spawn_blocking(move || {
-                let pdfium = init_pdfium()?;
-                let document = load_document(&pdfium, &source)?;
-                let page = document.pages().get(page_index as u16)?;
-
-                let page_width_pts = page.width().value;
-                let page_height_pts = page.height().value;
-
-                let config = make_render_config(page_width_pts, page_height_pts, zoom_level);
-
-                let bitmap = page.render_with_config(&config)?;
-                let rgba_data = bitmap.as_rgba_bytes().clone();
-                let width = bitmap.width() as usize;
-                let height = bitmap.height() as usize;
-
-                Ok::<_, PdfiumError>((rgba_data, width, height))
-            })
-            .await
+            let scale = render_scale(zoom_level);
+            match tokio::task::spawn_blocking(move || render_source_page(&source, page_index, scale))
+                .await
             {
-                Ok(Ok((rgba_data, width, height))) => {
+                Ok(Ok((rgba_data, width, height, _, _))) => {
                     state.add_to_cache(
                         cache_key,
                         CachedPage {

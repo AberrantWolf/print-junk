@@ -47,11 +47,8 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
-      - name: Cache PDFium
-        uses: actions/cache@v5
-        with:
-          path: vendor/pdfium
-          key: ${{ runner.os }}-pdfium-7543
+      # PDFium is vendored by junk-libs-pdfium into target/.../build/.../out, so
+      # the `target` cache above covers it — no separate vendor/ cache needed.
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
@@ -79,9 +76,6 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
-      - name: Cache PDFium
-        uses: actions/cache@v5
-        with:
-          path: vendor/pdfium
-          key: ${{ runner.os }}-pdfium-7543
+      # PDFium is vendored by junk-libs-pdfium into target/.../build/.../out, so
+      # the `target` cache above covers it — no separate vendor/ cache needed.
       - run: cargo test --workspace --locked

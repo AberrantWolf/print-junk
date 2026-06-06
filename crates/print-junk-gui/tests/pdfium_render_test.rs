@@ -1,10 +1,12 @@
-#[cfg(all(test, not(target_arch = "wasm32"), feature = "pdf-viewer"))]
-mod pdfium_render_tests {
-    use pdfium_render::prelude::*;
+//! Consumer-side wiring test: proves that print-junk's build correctly vendors
+//! and binds `PDFium` *through the shared `junk-libs-pdfium` crate* at runtime.
+//! The render core itself is unit-tested in junk-libs; this only guards that the
+//! binary is reachable from a print-junk test binary (the "clean build doesn't
+//! prove rendering works" gotcha).
+#![cfg(all(not(target_arch = "wasm32"), feature = "pdf-viewer"))]
 
-    /// Minimal valid PDF document (Hello World)
-    /// This is a complete, valid PDF that contains simple text
-    const SAMPLE_PDF: &[u8] = b"%PDF-1.4
+/// Minimal valid one-page PDF (612×792), enough to bind, load, and render.
+const SAMPLE_PDF: &[u8] = b"%PDF-1.4
 1 0 obj
 <<
 /Type /Catalog
@@ -64,105 +66,26 @@ startxref
 %%EOF
 ";
 
-    #[test]
-    fn test_pdfium_loads_and_renders() {
-        // This test verifies that pdfium is correctly installed, linked, and functioning
-        // by loading a PDF and rendering it to an image
+#[test]
+fn pdfium_binds_and_renders_through_junk_libs() {
+    let pdfium = junk_libs_pdfium::instance().expect("bind vendored PDFium via junk-libs-pdfium");
 
-        // Initialize Pdfium library - explicitly load from the vendor directory
-        // to avoid conflicts with system-installed or user-local pdfium libraries
-        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let workspace_root = manifest_dir
-            .parent()
-            .and_then(|p| p.parent())
-            .expect("Failed to find workspace root");
-        let pdfium_lib_path = if cfg!(target_os = "windows") {
-            workspace_root.join("vendor/pdfium/bin")
-        } else {
-            workspace_root.join("vendor/pdfium/lib")
-        };
-        let pdfium_lib_name = if cfg!(target_os = "macos") {
-            "libpdfium.dylib"
-        } else if cfg!(target_os = "windows") {
-            "pdfium.dll"
-        } else {
-            "libpdfium.so"
-        };
+    let (image, (width_pts, height_pts)) =
+        junk_libs_pdfium::render_page_bitmap_from_bytes(pdfium, SAMPLE_PDF, 0, 1.0)
+            .expect("render the sample PDF");
 
-        let pdfium = Pdfium::new(
-            Pdfium::bind_to_library(
-                pdfium_lib_path
-                    .join(pdfium_lib_name)
-                    .to_str()
-                    .expect("Invalid pdfium library path"),
-            )
-            .expect(
-                "Failed to bind to Pdfium library. Make sure pdfium is installed via build script.",
-            ),
-        );
-
-        // Load the sample PDF from memory
-        let document = pdfium
-            .load_pdf_from_byte_slice(SAMPLE_PDF, None)
-            .expect("Failed to load PDF document");
-
-        // Verify the document has at least one page
-        assert_eq!(
-            document.pages().len(),
-            1,
-            "Sample PDF should have exactly 1 page"
-        );
-
-        // Get the first page
-        let page = document.pages().get(0).expect("Failed to get first page");
-
-        // Verify page dimensions are reasonable
-        let width = page.width().value;
-        let height = page.height().value;
-        assert!(width > 0.0, "Page width should be positive");
-        assert!(height > 0.0, "Page height should be positive");
-
-        // Render the page to a bitmap at 72 DPI
-        let render_config = PdfRenderConfig::new()
-            .set_target_width(612)
-            .set_maximum_height(792);
-
-        let bitmap = page
-            .render_with_config(&render_config)
-            .expect("Failed to render page to bitmap");
-
-        // Verify the bitmap was created with expected dimensions
-        let bitmap_width = bitmap.width();
-        let bitmap_height = bitmap.height();
-
-        assert!(bitmap_width > 0, "Bitmap width should be positive");
-        assert!(bitmap_height > 0, "Bitmap height should be positive");
-
-        // Verify we can convert to image format (this exercises the full rendering pipeline)
-        let image_buffer = bitmap.as_image().into_rgb8();
-
-        assert_eq!(
-            image_buffer.width(),
-            bitmap_width as u32,
-            "Image buffer width should match bitmap width"
-        );
-        assert_eq!(
-            image_buffer.height(),
-            bitmap_height as u32,
-            "Image buffer height should match bitmap height"
-        );
-
-        // Verify the image has actual data (not all zeros)
-        let pixels: Vec<u8> = image_buffer.into_raw();
-        let non_zero_pixels = pixels.iter().filter(|&&p| p != 0).count();
-
-        assert!(
-            non_zero_pixels > 0,
-            "Rendered image should contain some non-zero pixels (actual content)"
-        );
-
-        println!(
-            "✓ Pdfium successfully loaded and rendered PDF ({bitmap_width}x{bitmap_height} bitmap, {non_zero_pixels} non-zero pixels)"
-        );
-    }
+    // MediaBox is 612×792 pt; at scale 1.0 the raster matches in pixels.
+    assert!(
+        (width_pts - 612.0).abs() < 2.0 && (height_pts - 792.0).abs() < 2.0,
+        "unexpected page size in points: {width_pts}×{height_pts}"
+    );
+    assert!(
+        image.width() > 0 && image.height() > 0,
+        "degenerate raster {}×{}",
+        image.width(),
+        image.height()
+    );
+    // The page has content, so the raster must contain non-blank pixels.
+    let non_zero = image.as_raw().iter().filter(|&&b| b != 0).count();
+    assert!(non_zero > 0, "rendered image was entirely zero");
 }

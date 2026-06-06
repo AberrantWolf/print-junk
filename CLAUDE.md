@@ -9,7 +9,7 @@ Collection of PDF processing and generation tools — features wanted but not fo
 ## Commands
 
 ```bash
-# Build everything (release; build script auto-downloads PDFium to vendor/pdfium/)
+# Build everything (release; junk-libs-pdfium's build script vendors PDFium automatically)
 cargo build --release
 
 # Build without the PDF viewer (skips PDFium entirely)
@@ -104,6 +104,6 @@ Every implementation plan must address three sections:
 
 ## Notes
 
-- PDFium is downloaded automatically by the `print-junk-gui` build script (chromium/7543) into `vendor/pdfium/`. To force re-download: `rm -rf vendor/pdfium && cargo clean -p print-junk-gui`.
+- PDFium rendering is provided by the shared `junk-libs-pdfium` crate (a path dep at `../junk-libs/junk-libs-pdfium`, gated behind the `pdf-viewer` feature). Its build script downloads the pinned binary (chromium/7763) into its own `OUT_DIR` and binds it at runtime — print-junk no longer downloads or links PDFium itself. To force re-download: `cargo clean -p junk-libs-pdfium`.
 - Releases are tag-driven: bump version in root `Cargo.toml` `[workspace.package]`, then push a `vX.Y.Z` tag — the GitHub release workflow builds all platforms. See `INSTALL.md` for runtime/build dependencies.
 - `Imposition Details.md` contains in-depth reference on imposition math and arrangements.
