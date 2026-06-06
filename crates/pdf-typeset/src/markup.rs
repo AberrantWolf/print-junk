@@ -6,6 +6,7 @@ use std::fmt::Write as _;
 use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use crate::config::{BreakPosition, InputFormat, PageBreakRule, TypesetInput};
+use crate::typst_table::{Align, Cell, Table as TypstTable};
 
 /// Characters that carry markup meaning in Typst and must be backslash-escaped
 /// when emitting literal text. Brackets are included so literal `[`/`]` don't
@@ -344,54 +345,31 @@ impl TableBuilder {
     }
 
     fn render(&self) -> String {
-        let cols = self
+        let columns = self
             .aligns
             .len()
             .max(self.rows.iter().map(Vec::len).max().unwrap_or(0))
             .max(1);
-
-        let mut s = String::from("\n#table(\n");
-        let _ = writeln!(s, "  columns: {cols},");
-
-        s.push_str("  align: (");
-        for i in 0..cols {
-            let a = self.aligns.get(i).copied().unwrap_or(Alignment::None);
-            s.push_str(align_to_typst(a));
-            if i + 1 < cols {
-                s.push_str(", ");
-            }
+        TypstTable {
+            columns,
+            aligns: self.aligns.iter().map(|a| align_to_typst(*a)).collect(),
+            header_rows: self.header_rows,
+            // Markdown cells never span; map each to a plain 1×1 cell.
+            rows: self
+                .rows
+                .iter()
+                .map(|row| row.iter().map(|c| Cell::new(c.as_str())).collect())
+                .collect(),
         }
-        s.push_str("),\n");
-
-        let header_n = self.header_rows.min(self.rows.len());
-        if header_n > 0 {
-            s.push_str("  table.header(\n");
-            for row in &self.rows[..header_n] {
-                push_cells(&mut s, row);
-            }
-            s.push_str("  ),\n");
-        }
-        for row in &self.rows[header_n..] {
-            push_cells(&mut s, row);
-        }
-        s.push_str(")\n\n");
-        s
+        .render()
     }
 }
 
-fn push_cells(s: &mut String, row: &[String]) {
-    s.push_str("  ");
-    for cell in row {
-        let _ = write!(s, "[{cell}], ");
-    }
-    s.push('\n');
-}
-
-fn align_to_typst(a: Alignment) -> &'static str {
+fn align_to_typst(a: Alignment) -> Align {
     match a {
-        Alignment::Left | Alignment::None => "left",
-        Alignment::Center => "center",
-        Alignment::Right => "right",
+        Alignment::Left | Alignment::None => Align::Left,
+        Alignment::Center => Align::Center,
+        Alignment::Right => Align::Right,
     }
 }
 

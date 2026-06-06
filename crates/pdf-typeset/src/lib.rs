@@ -12,6 +12,7 @@ mod html;
 mod markup;
 mod math;
 mod template;
+mod typst_table;
 
 pub use config::{
     BreakPosition, Color, FontChoice, HAlign, HeadingStyle, InputFormat, PageBreakRule,
@@ -68,13 +69,14 @@ pub fn typeset_html(
     let doc = html::import(html, resolver, true);
     let s = &doc.stats;
     log::info!(
-        "imported: math {} native / {} image / {} raw, images {} ok / {} failed, {} footnotes",
+        "imported: math {} native / {} image / {} raw, images {} ok / {} failed, {} footnotes, {} citations",
         s.math_tex,
         s.math_image,
         s.math_raw,
         s.images_ok,
         s.images_failed,
-        s.footnotes
+        s.footnotes,
+        s.citations
     );
     let effective = effective_config(config);
     let source = template::build_source(&effective, &doc.body);

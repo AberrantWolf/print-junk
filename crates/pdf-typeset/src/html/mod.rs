@@ -8,7 +8,7 @@
 //! I/O-free and testable from fixtures. Math image fallbacks and fetched images
 //! are returned as named assets for the caller to register as `Typst` files.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 
@@ -16,6 +16,7 @@ use scraper::node::Node;
 use scraper::{ElementRef, Html, Selector};
 
 use crate::markup::escape_inline;
+use crate::typst_table::{Align, Cell, Table as TypstTable};
 use crate::{MathPipeline, MathSource, Tier};
 
 /// Resolves a referenced asset (an `<img src>`) to its bytes. Implemented by the
@@ -41,6 +42,7 @@ pub struct ImportStats {
     pub images_ok: usize,
     pub images_failed: usize,
     pub footnotes: usize,
+    pub citations: usize,
 }
 
 /// The result of importing an HTML document.
@@ -58,6 +60,13 @@ pub struct ImportedDoc {
 pub fn import(html: &str, resolver: &dyn AssetResolver, regenerate_outline: bool) -> ImportedDoc {
     let doc = Html::parse_document(html);
     let mut imp = Importer::new(resolver);
+    if let Ok(sel) = Selector::parse(".ltx_bibitem") {
+        imp.bib_ids = doc
+            .select(&sel)
+            .filter_map(|e| e.value().attr("id"))
+            .map(String::from)
+            .collect();
+    }
     let content = content_root(&doc)
         .map(|root| imp.render_children(root))
         .unwrap_or_default();
@@ -127,6 +136,9 @@ struct Importer<'r> {
     asset_names: HashMap<String, String>,
     title: Option<String>,
     stats: ImportStats,
+    /// `id`s of `<li class="ltx_bibitem">` entries — populated up front so a
+    /// citation only emits a `#link` to a label we are certain to render.
+    bib_ids: HashSet<String>,
     annotation_sel: Selector,
     note_content_sel: Selector,
     tr_sel: Selector,
@@ -142,6 +154,7 @@ impl<'r> Importer<'r> {
             asset_names: HashMap::new(),
             title: None,
             stats: ImportStats::default(),
+            bib_ids: HashSet::new(),
             annotation_sel: Selector::parse("annotation").unwrap(),
             note_content_sel: Selector::parse(".ltx_note_content").unwrap(),
             tr_sel: Selector::parse("tr").unwrap(),
@@ -175,6 +188,17 @@ impl<'r> Importer<'r> {
         }
         if v.classes().any(|c| c == "ltx_authors") {
             return self.authors(el);
+        }
+        if v.classes().any(|c| c == "ltx_biblist") {
+            return self.bib_list(el);
+        }
+        // `LaTeXML` font switches arrive as styled spans rather than `<em>`/`<b>`
+        // (common in bibliography entries: italic journal/title runs).
+        if v.classes().any(|c| c == "ltx_font_italic") {
+            return format!("_{}_", self.render_children(el));
+        }
+        if v.classes().any(|c| c == "ltx_font_bold") {
+            return format!("*{}*", self.render_children(el));
         }
         match v.name() {
             "math" => self.render_math(el),
@@ -251,11 +275,20 @@ impl<'r> Importer<'r> {
     fn link(&mut self, el: ElementRef<'_>) -> String {
         let children = self.render_children(el);
         match el.value().attr("href") {
-            // Internal anchors won't resolve after reflow; keep the text only.
-            Some(href) if !href.starts_with('#') => {
-                format!("#link({})[{children}]", typst_string(href))
+            Some(href) if href.starts_with('#') => {
+                // Internal anchor: link only to a bibliography entry we labelled
+                // (a citation). Other anchors won't resolve after reflow, so the
+                // text is kept on its own.
+                let frag = &href[1..];
+                if self.bib_ids.contains(frag) {
+                    self.stats.citations += 1;
+                    format!("#link(<{}>)[{children}]", sanitize_label(frag))
+                } else {
+                    children
+                }
             }
-            _ => children,
+            Some(href) => format!("#link({})[{children}]", typst_string(href)),
+            None => children,
         }
     }
 
@@ -297,6 +330,33 @@ impl<'r> Importer<'r> {
         }
     }
 
+    /// The reference list. Each `ltx_bibitem` becomes a hanging-indent block
+    /// carrying a `Typst` label matching its `id`, so the [`Self::link`]-emitted
+    /// citations resolve to it. The leading `[N]` tag `LaTeXML` includes is kept
+    /// as the visible marker.
+    fn bib_list(&mut self, el: ElementRef<'_>) -> String {
+        let mut out = String::from("\n");
+        for li in el.children().filter_map(ElementRef::wrap) {
+            if !li.value().classes().any(|c| c == "ltx_bibitem") {
+                continue;
+            }
+            let body = self.render_children(li);
+            let body = body.trim();
+            if body.is_empty() {
+                continue;
+            }
+            out.push_str("#block(below: 0.65em)[#par(hanging-indent: 1.5em)[");
+            out.push_str(body);
+            out.push_str("]]");
+            if let Some(id) = li.value().attr("id") {
+                let _ = write!(out, " <{}>", sanitize_label(id));
+            }
+            out.push('\n');
+        }
+        out.push('\n');
+        out
+    }
+
     fn render_footnote(&mut self, el: ElementRef<'_>) -> String {
         self.stats.footnotes += 1;
         let content = el.select(&self.note_content_sel).next();
@@ -334,30 +394,147 @@ impl<'r> Importer<'r> {
     }
 
     fn table(&mut self, el: ElementRef<'_>) -> String {
-        // Collect cell elements first (borrows the DOM, not `self`), then render.
-        let rows: Vec<Vec<ElementRef<'_>>> = el
+        // Collect cell structure first (this borrows the DOM and `self`'s
+        // selectors, not `self` mutably), then render — `render_children` needs
+        // `&mut self`. Each raw cell carries its element plus spans/alignment.
+        struct RawCell<'a> {
+            el: ElementRef<'a>,
+            colspan: usize,
+            rowspan: usize,
+            align: Option<Align>,
+        }
+        let raw_rows: Vec<(bool, Vec<RawCell<'_>>)> = el
             .select(&self.tr_sel)
-            .map(|tr| tr.select(&self.cell_sel).collect())
+            .map(|tr| {
+                let cells = tr
+                    .select(&self.cell_sel)
+                    .map(|c| RawCell {
+                        el: c,
+                        colspan: span_attr(c, "colspan"),
+                        rowspan: span_attr(c, "rowspan"),
+                        align: cell_align(c),
+                    })
+                    .collect();
+                (in_thead(tr), cells)
+            })
+            .filter(|(_, cells): &(bool, Vec<RawCell<'_>>)| !cells.is_empty())
             .collect();
-        let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
-        if cols == 0 {
+
+        let mut rows: Vec<Vec<Cell>> = Vec::new();
+        let mut header_flags: Vec<bool> = Vec::new();
+        // Column alignment is taken from body cells; header cells only fill in
+        // columns the body never aligns (header alignment often differs).
+        let mut col_aligns: Vec<Option<Align>> = Vec::new();
+        let mut header_aligns: Vec<Option<Align>> = Vec::new();
+        let mut any_rowspan = false;
+
+        for (is_header, cells) in raw_rows {
+            let mut row: Vec<Cell> = Vec::with_capacity(cells.len());
+            let mut col = 0usize;
+            for c in cells {
+                any_rowspan |= c.rowspan > 1;
+                if let Some(a) = c.align {
+                    let target = if is_header {
+                        &mut header_aligns
+                    } else {
+                        &mut col_aligns
+                    };
+                    if target.len() <= col {
+                        target.resize(col + 1, None);
+                    }
+                    target[col].get_or_insert(a);
+                }
+                row.push(Cell {
+                    body: self.render_children(c.el).trim().to_string(),
+                    colspan: c.colspan,
+                    rowspan: c.rowspan,
+                });
+                col += c.colspan;
+            }
+            header_flags.push(is_header);
+            rows.push(row);
+        }
+
+        let columns = rows
+            .iter()
+            .map(|r| r.iter().map(|c| c.colspan).sum::<usize>())
+            .max()
+            .unwrap_or(0);
+        if columns == 0 {
             return String::new();
         }
-        let mut out = format!("\n#table(\n  columns: {cols},\n");
-        for row in &rows {
-            out.push_str("  ");
-            for cell in row {
-                let _ = write!(out, "[{}], ", self.render_children(*cell).trim());
+
+        // Pad short rows to keep the grid rectangular — but only when no cell
+        // spans rows, since rowspans deliberately leave later rows short and
+        // Typst flows around them.
+        if !any_rowspan {
+            for row in &mut rows {
+                let width: usize = row.iter().map(|c| c.colspan).sum();
+                for _ in width..columns {
+                    row.push(Cell::new(""));
+                }
             }
-            // Pad short rows so the grid stays rectangular.
-            for _ in row.len()..cols {
-                out.push_str("[], ");
-            }
-            out.push('\n');
         }
-        out.push_str(")\n\n");
-        out
+
+        let aligns = (0..columns)
+            .map(|i| {
+                col_aligns
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .or_else(|| header_aligns.get(i).copied().flatten())
+                    .unwrap_or(Align::Left)
+            })
+            .collect();
+        let header_rows = header_flags.iter().take_while(|h| **h).count();
+
+        TypstTable {
+            columns,
+            aligns,
+            header_rows,
+            rows,
+        }
+        .render()
     }
+}
+
+/// Turn an HTML `id` into a `Typst` label name, mapping every non-alphanumeric
+/// character to `-`. Applied identically at the citation and bibliography ends so
+/// the two always agree (avoids relying on `.`/`:` being valid in labels).
+fn sanitize_label(id: &str) -> String {
+    id.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// A `colspan`/`rowspan` attribute value, clamped to at least 1 (a missing or
+/// unparseable attribute means a single cell).
+fn span_attr(el: ElementRef<'_>, name: &str) -> usize {
+    el.value()
+        .attr(name)
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
+/// The horizontal alignment a `LaTeXML` cell requests via its `ltx_align_*`
+/// class, if any. Vertical (`top`/`middle`/…) and `justify` hints are ignored.
+fn cell_align(el: ElementRef<'_>) -> Option<Align> {
+    el.value().classes().find_map(|c| match c {
+        "ltx_align_left" => Some(Align::Left),
+        "ltx_align_center" => Some(Align::Center),
+        "ltx_align_right" => Some(Align::Right),
+        _ => None,
+    })
+}
+
+/// Whether a `<tr>` sits inside a table header (`<thead>` or `LaTeXML`'s
+/// `ltx_thead`).
+fn in_thead(tr: ElementRef<'_>) -> bool {
+    tr.ancestors().filter_map(ElementRef::wrap).any(|a| {
+        let v = a.value();
+        v.name() == "thead" || v.classes().any(|c| c == "ltx_thead")
+    })
 }
 
 /// Collapse runs of whitespace to single spaces (HTML inline-text semantics).
@@ -458,5 +635,77 @@ mod tests {
         assert!(doc.body.contains('$'), "inline math present: {}", doc.body);
         assert_eq!(doc.stats.math_tex, 1);
         assert_eq!(doc.stats.footnotes, 1);
+    }
+
+    const SAMPLE_BIB: &str = r##"
+    <html><body>
+      <article class="ltx_document">
+        <p class="ltx_p">As shown<cite class="ltx_cite ltx_citemacro_citep">[<a href="#bib.bib1" class="ltx_ref">1</a>]</cite>
+          and also<cite class="ltx_cite"><a href="#S2" class="ltx_ref">Section 2</a></cite>.</p>
+        <ol class="ltx_biblist">
+          <li id="bib.bib1" class="ltx_bibitem">
+            <span class="ltx_tag ltx_role_refnum">[1]</span>
+            <span class="ltx_bibblock">Jane Doe. <span class="ltx_text ltx_font_italic">Some Journal</span>, 2020.</span>
+          </li>
+        </ol>
+      </article>
+    </body></html>
+    "##;
+
+    #[test]
+    fn citation_links_to_labelled_bibitem() {
+        let doc = import(SAMPLE_BIB, &NoAssets, false);
+        // Citation to a known bibitem links to the sanitized label.
+        assert!(
+            doc.body.contains("#link(<bib-bib1>)["),
+            "cite link: {}",
+            doc.body
+        );
+        // The bibliography entry carries the matching label.
+        assert!(doc.body.contains("<bib-bib1>"), "bib label: {}", doc.body);
+        // Italic font-span inside the entry is emphasized.
+        assert!(
+            doc.body.contains("_Some Journal_"),
+            "italic span: {}",
+            doc.body
+        );
+        // A non-bib internal anchor stays as plain text (no #link).
+        assert!(
+            doc.body.contains("Section 2") && !doc.body.contains("#link(<S2>)"),
+            "non-bib anchor: {}",
+            doc.body
+        );
+        assert_eq!(doc.stats.citations, 1);
+    }
+
+    #[test]
+    fn table_emits_alignment_header_and_spans() {
+        const TABLE: &str = r#"
+        <html><body><article class="ltx_document"><table class="ltx_tabular">
+          <thead class="ltx_thead"><tr>
+            <th class="ltx_align_left" colspan="2">Wide Head</th>
+          </tr></thead>
+          <tbody><tr>
+            <td class="ltx_align_center">a</td>
+            <td class="ltx_align_right">b</td>
+          </tr></tbody>
+        </table></article></body></html>
+        "#;
+        let doc = import(TABLE, &NoAssets, false);
+        assert!(doc.body.contains("#table("), "table: {}", doc.body);
+        assert!(doc.body.contains("columns: 2"), "columns: {}", doc.body);
+        // Per-column alignment from the body cells.
+        assert!(
+            doc.body.contains("align: (center, right)"),
+            "align: {}",
+            doc.body
+        );
+        // Header row wrapped; the wide head spans both columns.
+        assert!(doc.body.contains("table.header("), "header: {}", doc.body);
+        assert!(
+            doc.body.contains("table.cell(colspan: 2, )[Wide Head]"),
+            "colspan: {}",
+            doc.body
+        );
     }
 }
