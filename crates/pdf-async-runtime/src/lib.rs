@@ -4,7 +4,13 @@ use std::path::PathBuf;
 pub use pdf_flashcards::{Flashcard, FlashcardOptions};
 pub use pdf_impose::{ImpositionOptions, ImpositionStatistics};
 #[cfg(not(target_arch = "wasm32"))]
-pub use pdf_typeset::{InputFormat, TypesetConfig, TypesetInput};
+pub use pdf_typeset::{ImportStats, InputFormat, TypesetConfig, TypesetInput};
+
+/// Named, in-memory document assets (math SVGs, fetched images) shared across the
+/// UI/worker boundary. `Arc` keeps the per-settings-change recompile messages
+/// cheap pointer clones rather than re-copying image bytes.
+#[cfg(not(target_arch = "wasm32"))]
+pub type SharedAssets = std::sync::Arc<Vec<(String, Vec<u8>)>>;
 
 /// Commands sent from UI to worker
 #[derive(Debug)]
@@ -78,6 +84,44 @@ pub enum PdfCommand {
     #[cfg(not(target_arch = "wasm32"))]
     TypesetSendToImpose {
         input: TypesetInput,
+        config: TypesetConfig,
+    },
+    /// Acquire a document (URL / arXiv id / local file), convert it, and return a
+    /// preview plus the raw + converted artifacts for caching (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetImport {
+        source: String,
+        config: TypesetConfig,
+    },
+    /// Re-convert a previously-imported document from its cached raw HTML and
+    /// assets (offline, on restore), then compile a preview (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetReconvert {
+        html: std::sync::Arc<String>,
+        raw_assets: SharedAssets,
+        config: TypesetConfig,
+    },
+    /// Recompile an already-converted import to a preview — the cheap path for
+    /// settings changes (no network, no re-conversion) (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetCompileImported {
+        body: std::sync::Arc<String>,
+        assets: SharedAssets,
+        config: TypesetConfig,
+    },
+    /// Compile a converted import and write the PDF to `output_path` (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetGenerateImported {
+        body: std::sync::Arc<String>,
+        assets: SharedAssets,
+        config: TypesetConfig,
+        output_path: PathBuf,
+    },
+    /// Compile a converted import to a temp PDF and hand it to imposition (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetSendImportedToImpose {
+        body: std::sync::Arc<String>,
+        assets: SharedAssets,
         config: TypesetConfig,
     },
 }
@@ -156,6 +200,31 @@ pub enum PdfUpdate {
     #[cfg(not(target_arch = "wasm32"))]
     TypesetReadyForImpose {
         path: PathBuf,
+    },
+    /// A document import finished: a preview is ready, along with the raw payload
+    /// to persist (`source`/`html`/`raw_assets`) and the converted artifact to
+    /// cache in-memory for cheap recompiles (`body`/`assets`) (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetImported {
+        pdf_bytes: Vec<u8>,
+        page_count: usize,
+        source: String,
+        html: std::sync::Arc<String>,
+        raw_assets: SharedAssets,
+        body: std::sync::Arc<String>,
+        assets: SharedAssets,
+        title: Option<String>,
+        stats: ImportStats,
+    },
+    /// A cached import was re-converted on restore: a preview is ready and the
+    /// freshly-converted artifact should replace the in-memory cache (desktop-only).
+    #[cfg(not(target_arch = "wasm32"))]
+    TypesetReconverted {
+        pdf_bytes: Vec<u8>,
+        page_count: usize,
+        body: std::sync::Arc<String>,
+        assets: SharedAssets,
+        stats: ImportStats,
     },
 }
 

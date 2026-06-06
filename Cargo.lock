@@ -4337,6 +4337,7 @@ name = "print-junk-gui"
 version = "0.4.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "eframe",
  "egui",
@@ -4347,6 +4348,7 @@ dependencies = [
  "lopdf",
  "pdf-async-runtime",
  "pdf-flashcards",
+ "pdf-import",
  "pdf-impose",
  "pdf-typeset",
  "pdf-units",

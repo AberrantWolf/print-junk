@@ -33,6 +33,58 @@ impl AssetResolver for NoAssets {
     }
 }
 
+/// Wraps another resolver and records every `(src, bytes)` it successfully
+/// yields, so a one-time import's fetched assets can be cached and replayed
+/// offline later (see [`MapResolver`]).
+pub struct CapturingResolver<'r> {
+    inner: &'r dyn AssetResolver,
+    captured: std::cell::RefCell<HashMap<String, Vec<u8>>>,
+}
+
+impl<'r> CapturingResolver<'r> {
+    pub fn new(inner: &'r dyn AssetResolver) -> Self {
+        Self {
+            inner,
+            captured: std::cell::RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// The assets fetched during the wrapped import, keyed by their `<img src>`.
+    pub fn into_assets(self) -> Vec<(String, Vec<u8>)> {
+        self.captured.into_inner().into_iter().collect()
+    }
+}
+
+impl AssetResolver for CapturingResolver<'_> {
+    fn fetch(&self, src: &str) -> Option<Vec<u8>> {
+        let bytes = self.inner.fetch(src)?;
+        self.captured
+            .borrow_mut()
+            .insert(src.to_string(), bytes.clone());
+        Some(bytes)
+    }
+}
+
+/// Serves assets from an in-memory map — the offline replay of a previously
+/// [`CapturingResolver`]-captured import (e.g. on project restore).
+pub struct MapResolver {
+    assets: HashMap<String, Vec<u8>>,
+}
+
+impl MapResolver {
+    pub fn new(assets: impl IntoIterator<Item = (String, Vec<u8>)>) -> Self {
+        Self {
+            assets: assets.into_iter().collect(),
+        }
+    }
+}
+
+impl AssetResolver for MapResolver {
+    fn fetch(&self, src: &str) -> Option<Vec<u8>> {
+        self.assets.get(src).cloned()
+    }
+}
+
 /// Counts of how each part of the document was handled, for QA/logging.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ImportStats {
@@ -676,6 +728,31 @@ mod tests {
             doc.body
         );
         assert_eq!(doc.stats.citations, 1);
+    }
+
+    #[test]
+    fn capturing_then_map_resolver_replays_offline() {
+        struct OneImage;
+        impl AssetResolver for OneImage {
+            fn fetch(&self, src: &str) -> Option<Vec<u8>> {
+                (src == "fig.png").then(|| b"PNGDATA".to_vec())
+            }
+        }
+        const DOC: &str = r#"<html><body><article class="ltx_document">
+            <p class="ltx_p"><img src="fig.png"></p></article></body></html>"#;
+
+        // First pass captures the fetched asset.
+        let cap = CapturingResolver::new(&OneImage);
+        let first = import(DOC, &cap, false);
+        assert_eq!(first.stats.images_ok, 1);
+        let captured = cap.into_assets();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].0, "fig.png");
+
+        // Replaying the captured assets reproduces the import with no live source.
+        let replay = import(DOC, &MapResolver::new(captured), false);
+        assert_eq!(replay.stats.images_ok, 1);
+        assert_eq!(replay.assets.len(), first.assets.len());
     }
 
     #[test]

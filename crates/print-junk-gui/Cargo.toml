@@ -26,6 +26,8 @@ lopdf.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pdfium-render = { workspace = true, optional = true }
 pdf-typeset = { path = "../pdf-typeset" }
+pdf-import = { path = "../pdf-import" }
+base64 = "0.22"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 
 [features]

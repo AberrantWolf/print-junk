@@ -18,7 +18,9 @@ pub use config::{
     BreakPosition, Color, FontChoice, HAlign, HeadingStyle, InputFormat, PageBreakRule,
     TableBorder, TableStyle, TypesetConfig, TypesetInput,
 };
-pub use html::{AssetResolver, ImportStats, ImportedDoc, NoAssets};
+pub use html::{
+    AssetResolver, CapturingResolver, ImportStats, ImportedDoc, MapResolver, NoAssets,
+};
 pub use math::{MathAsset, MathPipeline, MathRender, MathSource, Tex2TypstRs, TexMathEngine, Tier};
 
 use typst::layout::PagedDocument;
@@ -56,16 +58,17 @@ pub fn typeset(input: &TypesetInput, config: &TypesetConfig) -> Result<Vec<u8>, 
     engine_to_pdf(&engine)
 }
 
-/// Import a structured HTML document (e.g. arXiv/LaTeXML) and typeset it to PDF.
+/// Convert a structured HTML document (e.g. arXiv/LaTeXML) into a typesettable
+/// [`ImportedDoc`] — Typst `body` markup plus its assets (math SVGs, fetched
+/// images). This is the expensive, config-independent half of an import: it
+/// walks the DOM and validates every equation. Images are fetched through
+/// `resolver`; the source's table of contents and page chrome are dropped and a
+/// fresh outline is generated.
 ///
-/// Images are fetched through `resolver`; the source's table of contents and page
-/// chrome are dropped and a fresh outline is generated. The returned
-/// [`ImportStats`] (logged here) records how the math degraded across tiers.
-pub fn typeset_html(
-    html: &str,
-    resolver: &dyn AssetResolver,
-    config: &TypesetConfig,
-) -> Result<Vec<u8>, TypesetError> {
+/// Separated from [`compile_imported`] so callers can convert once and re-compile
+/// to different page sizes/margins cheaply. The logged [`ImportStats`] record how
+/// the math degraded across tiers.
+pub fn import_html(html: &str, resolver: &dyn AssetResolver) -> ImportedDoc {
     let doc = html::import(html, resolver, true);
     let s = &doc.stats;
     log::info!(
@@ -78,10 +81,41 @@ pub fn typeset_html(
         s.footnotes,
         s.citations
     );
+    doc
+}
+
+/// Compile an already-converted [`ImportedDoc`] to PDF bytes under `config`. The
+/// cheap, repeatable half of an import: no DOM walk, no network — only the
+/// template (page size, margins, fonts) varies.
+pub fn compile_imported(
+    doc: &ImportedDoc,
+    config: &TypesetConfig,
+) -> Result<Vec<u8>, TypesetError> {
+    compile_body(&doc.body, &doc.assets, config)
+}
+
+/// Compile pre-converted Typst `body` markup plus its named `assets` to PDF under
+/// `config`. The primitive behind [`compile_imported`]; taking slices lets the GUI
+/// recompile a cached (e.g. `Arc`-shared) import without cloning its asset bytes.
+pub fn compile_body(
+    body: &str,
+    assets: &[(String, Vec<u8>)],
+    config: &TypesetConfig,
+) -> Result<Vec<u8>, TypesetError> {
     let effective = effective_config(config);
-    let source = template::build_source(&effective, &doc.body);
-    let engine = build_engine(source, TypstKitFontOptions::default(), &doc.assets);
+    let source = template::build_source(&effective, body);
+    let engine = build_engine(source, TypstKitFontOptions::default(), assets);
     engine_to_pdf(&engine)
+}
+
+/// Import a structured HTML document and typeset it to PDF in one call —
+/// [`import_html`] followed by [`compile_imported`].
+pub fn typeset_html(
+    html: &str,
+    resolver: &dyn AssetResolver,
+    config: &TypesetConfig,
+) -> Result<Vec<u8>, TypesetError> {
+    compile_imported(&import_html(html, resolver), config)
 }
 
 /// Resolve a sensible default serif when no body font is chosen, so output isn't

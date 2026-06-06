@@ -478,6 +478,64 @@ impl eframe::App for PrintJunkApp {
                     });
                 }
                 #[cfg(not(target_arch = "wasm32"))]
+                PdfUpdate::TypesetImported {
+                    pdf_bytes,
+                    page_count,
+                    source,
+                    html,
+                    raw_assets,
+                    body,
+                    assets,
+                    title,
+                    stats,
+                } => {
+                    self.typesetting_state.importing = false;
+                    self.typesetting_state.import_error = None;
+                    self.typesetting_state.preview_page_count = page_count;
+                    // Cache the raw payload (persisted) plus the converted artifact
+                    // (in-memory) for cheap recompiles on settings changes.
+                    self.typesetting_state.import = Some(crate::views::ImportSession {
+                        source,
+                        html: (*html).clone(),
+                        raw_assets: (*raw_assets).clone(),
+                        converted: Some(crate::views::ConvertedImport {
+                            body,
+                            assets,
+                            title,
+                            stats,
+                        }),
+                        reconvert_requested: true,
+                    });
+                    self.progress = None;
+                    let _ = self.command_tx.send(PdfCommand::ViewerLoadBytes {
+                        pdf_bytes,
+                        page_count,
+                    });
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                PdfUpdate::TypesetReconverted {
+                    pdf_bytes,
+                    page_count,
+                    body,
+                    assets,
+                    stats,
+                } => {
+                    self.typesetting_state.preview_page_count = page_count;
+                    if let Some(import) = self.typesetting_state.import.as_mut() {
+                        import.converted = Some(crate::views::ConvertedImport {
+                            body,
+                            assets,
+                            title: None,
+                            stats,
+                        });
+                    }
+                    self.progress = None;
+                    let _ = self.command_tx.send(PdfCommand::ViewerLoadBytes {
+                        pdf_bytes,
+                        page_count,
+                    });
+                }
+                #[cfg(not(target_arch = "wasm32"))]
                 PdfUpdate::TypesetComplete { path } => {
                     log::info!("Typeset PDF → {}", path.display());
                     self.progress = None;
@@ -494,6 +552,12 @@ impl eframe::App for PrintJunkApp {
                 }
                 PdfUpdate::Error { message } => {
                     log::error!("Error: {message}");
+                    // Surface an error during an import attempt next to the field.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if self.typesetting_state.importing {
+                        self.typesetting_state.importing = false;
+                        self.typesetting_state.import_error = Some(message.clone());
+                    }
                     self.progress = None;
                 }
                 PdfUpdate::ViewerLoaded { doc_id, page_count } => {

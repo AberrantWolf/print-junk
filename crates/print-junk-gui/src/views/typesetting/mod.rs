@@ -2,18 +2,85 @@
 //! typeset PDF, with a live preview. Desktop-only (Typst is a native dependency).
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use eframe::egui;
-use pdf_async_runtime::PdfCommand;
+use pdf_async_runtime::{PdfCommand, SharedAssets};
 use pdf_typeset::{
-    BreakPosition, Color, HAlign, InputFormat, PageBreakRule, TableBorder, TypesetConfig,
-    TypesetInput, available_font_families,
+    BreakPosition, Color, HAlign, ImportStats, InputFormat, PageBreakRule, TableBorder,
+    TypesetConfig, TypesetInput, available_font_families,
 };
 use pdf_units::Orientation;
 use tokio::sync::mpsc;
 
 use super::ViewerState;
 use crate::ui_components::{enum_selector, labeled_drag_clamped, paper_size_picker};
+
+/// A document imported from a URL / arXiv id / file. The raw HTML and the assets
+/// fetched during conversion are persisted (so restore is offline and re-applies
+/// importer improvements); the converted Typst artifact is cached in-memory only,
+/// for cheap recompiles on settings changes.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct ImportSession {
+    /// What the user imported (URL / arXiv id / path) — shown and re-importable.
+    pub source: String,
+    /// The fetched HTML, re-converted on restore.
+    pub html: String,
+    /// Assets fetched during conversion, keyed by `<img src>` (base64 in the save).
+    #[serde(with = "asset_base64")]
+    pub raw_assets: Vec<(String, Vec<u8>)>,
+    /// In-memory converted artifact (Typst body + assets + stats); not persisted.
+    #[serde(skip)]
+    pub converted: Option<ConvertedImport>,
+    /// Set once a reconvert has been requested on restore, so it isn't re-sent
+    /// every frame while the worker is busy.
+    #[serde(skip)]
+    pub reconvert_requested: bool,
+}
+
+/// The converted, ready-to-compile form of an import, cached in memory. `Arc`s
+/// let recompile commands share the body/assets without copying.
+#[derive(Clone)]
+pub struct ConvertedImport {
+    pub body: Arc<String>,
+    pub assets: SharedAssets,
+    pub title: Option<String>,
+    pub stats: ImportStats,
+}
+
+/// Serde for `raw_assets`: each asset's bytes are base64-encoded so the embedded
+/// cache stays compact text in both the `.pjproj` (JSON) and eframe auto-storage.
+mod asset_base64 {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+    use serde::{Deserialize as _, Deserializer, Serialize as _, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        assets: &[(String, Vec<u8>)],
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        let encoded: Vec<(&str, String)> = assets
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), STANDARD.encode(bytes)))
+            .collect();
+        encoded.serialize(s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Vec<(String, Vec<u8>)>, D::Error> {
+        Vec::<(String, String)>::deserialize(d)?
+            .into_iter()
+            .map(|(name, b64)| {
+                STANDARD
+                    .decode(b64)
+                    .map(|bytes| (name, bytes))
+                    .map_err(serde::de::Error::custom)
+            })
+            .collect()
+    }
+}
 
 /// UI state for the typesetting mode.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -25,6 +92,20 @@ pub struct TypesettingState {
     pub source_text: String,
     pub format: InputFormat,
     pub config: TypesetConfig,
+
+    /// An imported document, when the source is a fetched URL/arXiv/HTML rather
+    /// than the editable text above. Persisted (raw HTML + assets) so it restores
+    /// offline.
+    pub import: Option<ImportSession>,
+    /// The URL / arXiv id / path typed into the import field (not persisted).
+    #[serde(skip)]
+    pub import_input: String,
+    /// True while an import fetch/convert is in flight.
+    #[serde(skip)]
+    pub importing: bool,
+    /// The last import error, shown beneath the import field.
+    #[serde(skip)]
+    pub import_error: Option<String>,
 
     /// Installed font families, for the font pickers (re-enumerated; not persisted).
     #[serde(skip)]
@@ -49,6 +130,10 @@ impl Default for TypesettingState {
             source_text: String::new(),
             format: InputFormat::Markdown,
             config: TypesetConfig::default(),
+            import: None,
+            import_input: String::new(),
+            importing: false,
+            import_error: None,
             available_fonts: available_font_families(),
             heading_edit_level: 1,
             preview_viewer: None,
@@ -107,7 +192,7 @@ pub fn show_typesetting(
                 ui.heading("Typesetting");
                 ui.separator();
 
-                source_section(ui, state);
+                source_section(ui, state, command_tx);
                 section_gap(ui);
                 page_section(ui, state);
                 section_gap(ui);
@@ -136,15 +221,15 @@ pub fn show_typesetting(
         });
 
     let page_count = state.preview_page_count;
-    let has_text = !state.source_text.trim().is_empty();
+    let has_content = !state.source_text.trim().is_empty() || state.import.is_some();
     let overlay = (page_count > 0).then(|| format!("Preview: {page_count} page(s)"));
     super::preview::show_preview_pane(ui, &mut state.preview_viewer, command_tx, overlay, |ui| {
-        if has_text {
+        if has_content {
             ui.heading("Ready to Typeset");
             ui.label("Adjust settings to update the preview");
         } else {
             ui.heading("No Document");
-            ui.label("Open a text, Markdown, or HTML file to begin");
+            ui.label("Open a file, or import from a URL / arXiv id");
         }
     });
 }
@@ -159,7 +244,92 @@ fn section_gap(ui: &mut egui::Ui) {
 // Sections
 // =============================================================================
 
-fn source_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
+fn source_section(
+    ui: &mut egui::Ui,
+    state: &mut TypesettingState,
+    command_tx: &mpsc::UnboundedSender<PdfCommand>,
+) {
+    import_row(ui, state, command_tx);
+
+    if state.import.is_some() {
+        imported_source(ui, state);
+    } else {
+        editable_source(ui, state);
+    }
+}
+
+/// The "import a document" control: a URL/arXiv/path field plus a button, shared
+/// by both the text and imported modes so an import can always be started.
+fn import_row(
+    ui: &mut egui::Ui,
+    state: &mut TypesettingState,
+    command_tx: &mpsc::UnboundedSender<PdfCommand>,
+) {
+    ui.label("Import a document:");
+    let mut go = false;
+    ui.horizontal(|ui| {
+        let field = ui.add(
+            egui::TextEdit::singleline(&mut state.import_input)
+                .desired_width(180.0)
+                .hint_text("URL, arXiv id, or file"),
+        );
+        let ready = !state.import_input.trim().is_empty() && !state.importing;
+        go = (field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && ready)
+            || (ui.add_enabled(ready, egui::Button::new("Import")).clicked());
+    });
+    if go {
+        state.importing = true;
+        state.import_error = None;
+        let _ = command_tx.send(PdfCommand::TypesetImport {
+            source: state.import_input.trim().to_string(),
+            config: state.config.clone(),
+        });
+    }
+    if state.importing {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Importing…");
+        });
+    }
+    if let Some(err) = &state.import_error {
+        ui.colored_label(egui::Color32::from_rgb(200, 60, 60), err);
+    }
+}
+
+/// Source UI when a document has been imported: a summary + stats, plus a button
+/// to discard the import and return to editing text.
+fn imported_source(ui: &mut egui::Ui, state: &mut TypesettingState) {
+    let Some(import) = &state.import else { return };
+    ui.add_space(4.0);
+    if let Some(conv) = &import.converted {
+        if let Some(title) = &conv.title {
+            ui.label(egui::RichText::new(title).strong());
+        }
+        let s = &conv.stats;
+        ui.label(
+            egui::RichText::new(format!(
+                "Imported from {} — math {} native/{} image/{} raw, {} figures, {} citations",
+                import.source, s.math_tex, s.math_image, s.math_raw, s.images_ok, s.citations
+            ))
+            .small()
+            .weak(),
+        );
+    } else {
+        ui.label(
+            egui::RichText::new(format!("Imported from {} (preparing…)", import.source))
+                .small()
+                .weak(),
+        );
+    }
+    if ui.button("✖ Clear import").clicked() {
+        state.import = None;
+        state.preview_page_count = 0;
+    }
+}
+
+/// Source UI for the editable text path: open a file, pick a format, edit text.
+fn editable_source(ui: &mut egui::Ui, state: &mut TypesettingState) {
+    ui.add_space(4.0);
     ui.label("Source document:");
     ui.horizontal(|ui| {
         let name = state
@@ -198,9 +368,33 @@ fn source_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
 }
 
 /// Send a fresh preview request if any setting changed this frame. Call once,
-/// after all sections, so no section's change is missed.
+/// after all sections, so no section's change is missed. Routes to the import
+/// recompile/reconvert path when a document is imported, else the text path.
 fn maybe_regenerate(state: &mut TypesettingState, command_tx: &mpsc::UnboundedSender<PdfCommand>) {
-    if state.needs_regeneration && !state.source_text.trim().is_empty() {
+    if let Some(import) = &mut state.import {
+        match &import.converted {
+            // Settings change with the converted artifact in hand: cheap recompile.
+            Some(conv) if state.needs_regeneration => {
+                state.needs_regeneration = false;
+                let _ = command_tx.send(PdfCommand::TypesetCompileImported {
+                    body: conv.body.clone(),
+                    assets: conv.assets.clone(),
+                    config: state.config.clone(),
+                });
+            }
+            // Restored from disk: re-convert the cached raw HTML once (offline).
+            None if !import.reconvert_requested => {
+                import.reconvert_requested = true;
+                state.needs_regeneration = false;
+                let _ = command_tx.send(PdfCommand::TypesetReconvert {
+                    html: Arc::new(import.html.clone()),
+                    raw_assets: Arc::new(import.raw_assets.clone()),
+                    config: state.config.clone(),
+                });
+            }
+            _ => {}
+        }
+    } else if state.needs_regeneration && !state.source_text.trim().is_empty() {
         state.needs_regeneration = false;
         let _ = command_tx.send(PdfCommand::TypesetGeneratePreview {
             input: state.to_input(),
@@ -602,32 +796,87 @@ fn actions_section(
     state: &mut TypesettingState,
     command_tx: &mpsc::UnboundedSender<PdfCommand>,
 ) {
-    let has_text = !state.source_text.trim().is_empty();
+    // An imported doc compiles from its cached converted artifact; plain text
+    // goes through the markup path. Both are gated on having something to output.
+    let converted = state
+        .import
+        .as_ref()
+        .and_then(|i| i.converted.as_ref())
+        .cloned();
+    let has_output = converted.is_some() || !state.source_text.trim().is_empty();
+
     ui.horizontal(|ui| {
         if ui
-            .add_enabled(has_text, egui::Button::new("💾 Save PDF…"))
+            .add_enabled(has_output, egui::Button::new("💾 Save PDF…"))
             .clicked()
             && let Some(path) = rfd::FileDialog::new()
                 .add_filter("PDF", &["pdf"])
                 .set_file_name("typeset.pdf")
                 .save_file()
         {
-            let _ = command_tx.send(PdfCommand::TypesetGenerate {
-                input: state.to_input(),
-                config: state.config.clone(),
-                output_path: path,
+            let _ = command_tx.send(match &converted {
+                Some(conv) => PdfCommand::TypesetGenerateImported {
+                    body: conv.body.clone(),
+                    assets: conv.assets.clone(),
+                    config: state.config.clone(),
+                    output_path: path,
+                },
+                None => PdfCommand::TypesetGenerate {
+                    input: state.to_input(),
+                    config: state.config.clone(),
+                    output_path: path,
+                },
             });
         }
 
         if ui
-            .add_enabled(has_text, egui::Button::new("📑 Send to Impose"))
+            .add_enabled(has_output, egui::Button::new("📑 Send to Impose"))
             .on_hover_text("Typeset and load the result into the imposition mode")
             .clicked()
         {
-            let _ = command_tx.send(PdfCommand::TypesetSendToImpose {
-                input: state.to_input(),
-                config: state.config.clone(),
+            let _ = command_tx.send(match &converted {
+                Some(conv) => PdfCommand::TypesetSendImportedToImpose {
+                    body: conv.body.clone(),
+                    assets: conv.assets.clone(),
+                    config: state.config.clone(),
+                },
+                None => PdfCommand::TypesetSendToImpose {
+                    input: state.to_input(),
+                    config: state.config.clone(),
+                },
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn import_session_round_trips_assets_as_base64() {
+        let session = ImportSession {
+            source: "arXiv:1706.03762".into(),
+            html: "<p>hi</p>".into(),
+            raw_assets: vec![("fig.png".into(), vec![0u8, 1, 2, 255])],
+            // The converted cache must NOT be persisted (holds Arcs / live state).
+            converted: Some(ConvertedImport {
+                body: Arc::new("body".into()),
+                assets: Arc::new(Vec::new()),
+                title: Some("T".into()),
+                stats: ImportStats::default(),
+            }),
+            reconvert_requested: true,
+        };
+        let json = serde_json::to_string(&session).unwrap();
+        // Asset bytes are base64 text, not a numeric array; transient fields skipped.
+        assert!(json.contains("AAEC/w=="), "assets should be base64: {json}");
+        assert!(!json.contains("converted"), "converted is transient: {json}");
+
+        let back: ImportSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.source, session.source);
+        assert_eq!(back.raw_assets, session.raw_assets);
+        assert!(back.converted.is_none());
+        assert!(!back.reconvert_requested);
+    }
 }

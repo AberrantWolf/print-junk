@@ -223,5 +223,75 @@ async fn process_command(
         PdfCommand::TypesetSendToImpose { input, config } => {
             handlers::typesetting::handle_send_to_impose(input, config, update_tx).await;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetImport { source, config } => {
+            handlers::typesetting::handle_import(source, config, update_tx).await;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetReconvert {
+            html,
+            raw_assets,
+            config,
+        } => {
+            handlers::typesetting::handle_reconvert(html, raw_assets, config, update_tx).await;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetCompileImported {
+            mut body,
+            mut assets,
+            mut config,
+        } => {
+            // Like the text-preview path, settings changes can fire every frame;
+            // keep only the most recent recompile request.
+            while let Ok(next_cmd) = command_rx.try_recv() {
+                if let PdfCommand::TypesetCompileImported {
+                    body: new_body,
+                    assets: new_assets,
+                    config: new_config,
+                } = next_cmd
+                {
+                    log::debug!("Discarding queued import recompile, using newer request");
+                    body = new_body;
+                    assets = new_assets;
+                    config = new_config;
+                } else {
+                    Box::pin(process_command(
+                        next_cmd,
+                        impose_doc_store,
+                        #[cfg(feature = "pdf-viewer")]
+                        viewer_state,
+                        command_rx,
+                        update_tx,
+                    ))
+                    .await;
+                }
+            }
+            handlers::typesetting::handle_compile_imported(body, assets, config, update_tx).await;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetGenerateImported {
+            body,
+            assets,
+            config,
+            output_path,
+        } => {
+            handlers::typesetting::handle_generate_imported(
+                body,
+                assets,
+                config,
+                output_path,
+                update_tx,
+            )
+            .await;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        PdfCommand::TypesetSendImportedToImpose {
+            body,
+            assets,
+            config,
+        } => {
+            handlers::typesetting::handle_send_imported_to_impose(body, assets, config, update_tx)
+                .await;
+        }
     }
 }

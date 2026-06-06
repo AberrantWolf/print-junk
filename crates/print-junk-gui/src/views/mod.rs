@@ -9,5 +9,5 @@ pub mod viewer;
 pub use flashcards::{FlashcardState, show_flashcards};
 pub use impose::{ImposeState, show_impose};
 #[cfg(not(target_arch = "wasm32"))]
-pub use typesetting::{TypesettingState, show_typesetting};
+pub use typesetting::{ConvertedImport, ImportSession, TypesettingState, show_typesetting};
 pub use viewer::{ViewerState, ZoomState, show_viewer};

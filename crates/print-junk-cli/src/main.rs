@@ -443,7 +443,8 @@ async fn main() -> Result<()> {
                 config.margin_inner_mm = m;
                 config.margin_outer_mm = m;
             }
-            let pdf = pdf_typeset::typeset_html(&imported.html, &imported, &config)?;
+            let doc = pdf_typeset::import_html(&imported.html, &imported);
+            let pdf = pdf_typeset::compile_imported(&doc, &config)?;
             std::fs::write(&output, &pdf)?;
             println!(
                 "Imported {} → {} ({} KB)",
