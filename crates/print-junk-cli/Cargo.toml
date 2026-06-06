@@ -13,6 +13,8 @@ path = "src/main.rs"
 [dependencies]
 pdf-flashcards = { path = "../pdf-flashcards" }
 pdf-impose = { path = "../pdf-impose" }
+pdf-typeset = { path = "../pdf-typeset" }
+pdf-import = { path = "../pdf-import" }
 clap.workspace = true
 anyhow.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

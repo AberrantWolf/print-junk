@@ -73,7 +73,8 @@ impl StartupSettings {
 
 fn square_button(ui: &mut egui::Ui, emoji: &str, label: &str) -> bool {
     let text = egui::RichText::new(format!("{emoji}\n\n{label}")).size(20.0);
-    ui.add_sized([120.0, 120.0], egui::Button::new(text)).clicked()
+    ui.add_sized([120.0, 120.0], egui::Button::new(text))
+        .clicked()
 }
 
 /// Render the startup selector modal. Clicking a big button enters that tab and

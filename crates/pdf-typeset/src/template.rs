@@ -265,7 +265,10 @@ fn table_fill_fn(header: Option<Color>, zebra: Option<Color>) -> Option<String> 
     if clauses.is_empty() {
         return None;
     }
-    Some(format!("(_, y) => {{ {} else {{ none }} }}", clauses.join(" else ")))
+    Some(format!(
+        "(_, y) => {{ {} else {{ none }} }}",
+        clauses.join(" else ")
+    ))
 }
 
 /// Title page (when a document title is set) and table of contents (when

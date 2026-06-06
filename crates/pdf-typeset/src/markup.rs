@@ -3,9 +3,7 @@
 
 use std::fmt::Write as _;
 
-use pulldown_cmark::{
-    Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
-};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 use crate::config::{BreakPosition, InputFormat, PageBreakRule, TypesetInput};
 
@@ -64,11 +62,12 @@ fn paginate(text: &str, rules: &[PageBreakRule]) -> Vec<String> {
             None => push_line(&mut pages, line),
         }
     }
-    let out: Vec<String> = pages
-        .into_iter()
-        .filter(|p| !p.trim().is_empty())
-        .collect();
-    if out.is_empty() { vec![String::new()] } else { out }
+    let out: Vec<String> = pages.into_iter().filter(|p| !p.trim().is_empty()).collect();
+    if out.is_empty() {
+        vec![String::new()]
+    } else {
+        out
+    }
 }
 
 fn push_line(pages: &mut [String], line: &str) {
@@ -82,7 +81,7 @@ fn push_line(pages: &mut [String], line: &str) {
 // Plaintext → Typst
 // =============================================================================
 
-fn escape_inline(s: &str) -> String {
+pub(crate) fn escape_inline(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         if INLINE_SPECIALS.contains(&ch) {
@@ -98,7 +97,10 @@ fn escape_inline(s: &str) -> String {
 fn escape_plaintext_line(line: &str) -> String {
     let chars: Vec<char> = line.chars().collect();
     let lead = chars.iter().take_while(|c| c.is_whitespace()).count();
-    let digits = chars[lead..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let digits = chars[lead..]
+        .iter()
+        .take_while(|c| c.is_ascii_digit())
+        .count();
 
     let mut enum_sep: Option<usize> = None;
     if digits > 0 {
@@ -402,8 +404,26 @@ fn align_to_typst(a: Alignment) -> &'static str {
 /// (bold/headings) is a planned follow-up using a real HTML parser.
 fn html_to_text(html: &str) -> String {
     const BLOCK_TAGS: &[&str] = &[
-        "p", "div", "br", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol", "blockquote",
-        "section", "article", "header", "footer", "pre", "table", "tr",
+        "p",
+        "div",
+        "br",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "ul",
+        "ol",
+        "blockquote",
+        "section",
+        "article",
+        "header",
+        "footer",
+        "pre",
+        "table",
+        "tr",
     ];
 
     let mut out = String::new();
@@ -463,7 +483,10 @@ mod tests {
         assert!(out.contains("align: (left, right)"), "alignment:\n{out}");
         // Header row is wrapped so the template can style it.
         assert!(out.contains("table.header("), "header wrapper:\n{out}");
-        assert!(out.contains("[Name]") && out.contains("[Paper]"), "cells:\n{out}");
+        assert!(
+            out.contains("[Name]") && out.contains("[Paper]"),
+            "cells:\n{out}"
+        );
     }
 
     #[test]

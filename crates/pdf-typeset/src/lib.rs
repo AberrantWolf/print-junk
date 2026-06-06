@@ -8,17 +8,21 @@
 //! excluded from the WASM build (gated by the GUI's `typesetting` feature).
 
 mod config;
+mod html;
 mod markup;
+mod math;
 mod template;
 
 pub use config::{
     BreakPosition, Color, FontChoice, HAlign, HeadingStyle, InputFormat, PageBreakRule,
     TableBorder, TableStyle, TypesetConfig, TypesetInput,
 };
+pub use html::{AssetResolver, ImportStats, ImportedDoc, NoAssets};
+pub use math::{MathAsset, MathPipeline, MathRender, MathSource, Tex2TypstRs, TexMathEngine, Tier};
 
 use typst::layout::PagedDocument;
-use typst_as_lib::TypstEngine;
 use typst_as_lib::typst_kit_options::TypstKitFontOptions;
+use typst_as_lib::{TypstEngine, TypstTemplateMainFile};
 
 /// Errors produced while typesetting.
 #[derive(Debug, thiserror::Error)]
@@ -44,9 +48,43 @@ const DEFAULT_SERIF_PREFERENCES: &[&str] = &[
 
 /// Typeset `input` into PDF bytes according to `config`.
 pub fn typeset(input: &TypesetInput, config: &TypesetConfig) -> Result<Vec<u8>, TypesetError> {
-    // When no body font is chosen (system-fonts-only), resolve a sensible serif
-    // from the installed set so output isn't a monospace fallback. Headings left
-    // empty inherit the body font.
+    let effective = effective_config(config);
+    let body = markup::to_typst_body(input, &effective.page_breaks, effective.smart_punctuation);
+    let source = template::build_source(&effective, &body);
+    let engine = build_engine(source, TypstKitFontOptions::default(), &[]);
+    engine_to_pdf(&engine)
+}
+
+/// Import a structured HTML document (e.g. arXiv/LaTeXML) and typeset it to PDF.
+///
+/// Images are fetched through `resolver`; the source's table of contents and page
+/// chrome are dropped and a fresh outline is generated. The returned
+/// [`ImportStats`] (logged here) records how the math degraded across tiers.
+pub fn typeset_html(
+    html: &str,
+    resolver: &dyn AssetResolver,
+    config: &TypesetConfig,
+) -> Result<Vec<u8>, TypesetError> {
+    let doc = html::import(html, resolver, true);
+    let s = &doc.stats;
+    log::info!(
+        "imported: math {} native / {} image / {} raw, images {} ok / {} failed, {} footnotes",
+        s.math_tex,
+        s.math_image,
+        s.math_raw,
+        s.images_ok,
+        s.images_failed,
+        s.footnotes
+    );
+    let effective = effective_config(config);
+    let source = template::build_source(&effective, &doc.body);
+    let engine = build_engine(source, TypstKitFontOptions::default(), &doc.assets);
+    engine_to_pdf(&engine)
+}
+
+/// Resolve a sensible default serif when no body font is chosen, so output isn't
+/// a monospace fallback. Headings left empty inherit the body font.
+fn effective_config(config: &TypesetConfig) -> TypesetConfig {
     let mut effective = config.clone();
     if effective.body_font.family.trim().is_empty() {
         let families = available_font_families();
@@ -57,20 +95,27 @@ pub fn typeset(input: &TypesetInput, config: &TypesetConfig) -> Result<Vec<u8>, 
             effective.body_font.family = (*serif).to_string();
         }
     }
-
-    let body = markup::to_typst_body(input, &effective.page_breaks, effective.smart_punctuation);
-    let source = template::build_source(&effective, &body);
-    compile_to_pdf(&source)
+    effective
 }
 
-/// Compile a complete Typst source string to PDF bytes, resolving fonts from the
-/// system font set.
-fn compile_to_pdf(source: &str) -> Result<Vec<u8>, TypesetError> {
-    let engine = TypstEngine::builder()
-        .main_file(source.to_string())
-        .search_fonts_with(TypstKitFontOptions::default())
-        .build();
+/// Build a Typst engine for `source` with the given font search options and any
+/// in-memory `assets` (math SVGs, fetched images) registered as files. Shared by
+/// full PDF compilation (system + embedded fonts) and math-fragment validation
+/// (embedded only, for speed), so both go through one builder.
+pub(crate) fn build_engine(
+    source: String,
+    fonts: TypstKitFontOptions,
+    assets: &[(String, Vec<u8>)],
+) -> TypstEngine<TypstTemplateMainFile> {
+    TypstEngine::builder()
+        .main_file(source)
+        .search_fonts_with(fonts)
+        .with_static_file_resolver(assets.iter().map(|(n, b)| (n.as_str(), b.as_slice())))
+        .build()
+}
 
+/// Compile a built engine to PDF bytes.
+fn engine_to_pdf(engine: &TypstEngine<TypstTemplateMainFile>) -> Result<Vec<u8>, TypesetError> {
     let compiled = engine.compile::<PagedDocument>();
     for warning in &compiled.warnings {
         log::debug!("typst warning: {}", warning.message);

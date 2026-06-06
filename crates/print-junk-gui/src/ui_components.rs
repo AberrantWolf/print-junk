@@ -3,13 +3,15 @@ use pdf_units::PaperSize;
 use std::path::PathBuf;
 
 /// The standard named paper sizes offered in pickers (excludes `Custom`).
-pub const STANDARD_PAPER_SIZES: [(PaperSize, &str); 6] = [
+pub const STANDARD_PAPER_SIZES: [(PaperSize, &str); 8] = [
     (PaperSize::Letter, "Letter"),
     (PaperSize::Legal, "Legal"),
     (PaperSize::Tabloid, "Tabloid"),
     (PaperSize::A3, "A3"),
     (PaperSize::A4, "A4"),
     (PaperSize::A5, "A5"),
+    (PaperSize::B4, "B4"),
+    (PaperSize::B5, "B5"),
 ];
 
 /// A shared paper-size combo box over [`STANDARD_PAPER_SIZES`].
@@ -17,12 +19,7 @@ pub const STANDARD_PAPER_SIZES: [(PaperSize, &str); 6] = [
 /// Used by every mode that picks an output sheet/page size (imposition,
 /// flashcards, typesetting) so the option list stays consistent. Returns `true`
 /// if the selection changed.
-pub fn paper_size_picker(
-    ui: &mut egui::Ui,
-    id: &str,
-    label: &str,
-    value: &mut PaperSize,
-) -> bool {
+pub fn paper_size_picker(ui: &mut egui::Ui, id: &str, label: &str, value: &mut PaperSize) -> bool {
     enum_selector(ui, id, label, value, &STANDARD_PAPER_SIZES)
 }
 

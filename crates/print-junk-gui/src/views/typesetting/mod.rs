@@ -246,7 +246,13 @@ fn margins_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
         0.0..=80.0,
         " mm",
     );
-    changed |= labeled_drag_clamped(ui, "Outer (fore-edge)", &mut m.margin_outer_mm, 0.0..=80.0, " mm");
+    changed |= labeled_drag_clamped(
+        ui,
+        "Outer (fore-edge)",
+        &mut m.margin_outer_mm,
+        0.0..=80.0,
+        " mm",
+    );
     if changed {
         state.needs_regeneration = true;
     }
@@ -338,8 +344,18 @@ fn tables_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
     let mut changed = false;
 
     changed |= ui.checkbox(&mut t.header_bold, "Bold header row").changed();
-    changed |= optional_color_row(ui, "Header fill", &mut t.header_fill, Color::new(230, 230, 230));
-    changed |= optional_color_row(ui, "Zebra striping", &mut t.zebra_fill, Color::new(244, 244, 244));
+    changed |= optional_color_row(
+        ui,
+        "Header fill",
+        &mut t.header_fill,
+        Color::new(230, 230, 230),
+    );
+    changed |= optional_color_row(
+        ui,
+        "Zebra striping",
+        &mut t.zebra_fill,
+        Color::new(244, 244, 244),
+    );
 
     let borders = [
         (TableBorder::All, "All"),
@@ -490,11 +506,7 @@ fn font_family_picker(
                     changed = true;
                 }
                 for fam in available {
-                    if ui
-                        .selectable_label(family == fam, fam)
-                        .clicked()
-                        && family != fam
-                    {
+                    if ui.selectable_label(family == fam, fam).clicked() && family != fam {
                         family.clone_from(fam);
                         changed = true;
                     }
@@ -509,8 +521,20 @@ fn spacing_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
     let c = &mut state.config;
     let mut changed = false;
     changed |= labeled_drag_clamped(ui, "Line leading", &mut c.line_spacing_em, 0.0..=2.0, " em");
-    changed |= labeled_drag_clamped(ui, "Paragraph gap", &mut c.paragraph_spacing_mm, 0.0..=20.0, " mm");
-    changed |= labeled_drag_clamped(ui, "First-line indent", &mut c.paragraph_indent_mm, 0.0..=30.0, " mm");
+    changed |= labeled_drag_clamped(
+        ui,
+        "Paragraph gap",
+        &mut c.paragraph_spacing_mm,
+        0.0..=20.0,
+        " mm",
+    );
+    changed |= labeled_drag_clamped(
+        ui,
+        "First-line indent",
+        &mut c.paragraph_indent_mm,
+        0.0..=30.0,
+        " mm",
+    );
     changed |= ui.checkbox(&mut c.justify, "Justify text").changed();
     changed |= ui.checkbox(&mut c.hyphenate, "Hyphenate").changed();
     if changed {
@@ -543,7 +567,13 @@ fn page_breaks_section(ui: &mut egui::Ui, state: &mut TypesettingState) {
                         .hint_text("e.g. -----"),
                 )
                 .changed();
-            changed |= enum_selector(ui, &format!("ts_break_{i}"), "", &mut rule.position, &positions);
+            changed |= enum_selector(
+                ui,
+                &format!("ts_break_{i}"),
+                "",
+                &mut rule.position,
+                &positions,
+            );
             if ui.button("✖").clicked() {
                 remove = Some(i);
             }

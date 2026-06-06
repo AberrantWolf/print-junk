@@ -70,6 +70,10 @@ pub enum PaperSize {
     A4,
     /// ISO A5 (148mm × 210mm)
     A5,
+    /// ISO B4 (250mm × 353mm)
+    B4,
+    /// ISO B5 (176mm × 250mm)
+    B5,
     /// US Letter (8.5" × 11")
     #[default]
     Letter,
@@ -88,6 +92,8 @@ impl PaperSize {
             PaperSize::A3 => (297.0, 420.0),
             PaperSize::A4 => (210.0, 297.0),
             PaperSize::A5 => (148.0, 210.0),
+            PaperSize::B4 => (250.0, 353.0),
+            PaperSize::B5 => (176.0, 250.0),
             PaperSize::Letter => (215.9, 279.4),
             PaperSize::Legal => (215.9, 355.6),
             PaperSize::Tabloid => (279.4, 431.8),
@@ -134,6 +140,8 @@ impl serde::Serialize for PaperSize {
             PaperSize::A3 => serializer.serialize_str("A3"),
             PaperSize::A4 => serializer.serialize_str("A4"),
             PaperSize::A5 => serializer.serialize_str("A5"),
+            PaperSize::B4 => serializer.serialize_str("B4"),
+            PaperSize::B5 => serializer.serialize_str("B5"),
             PaperSize::Letter => serializer.serialize_str("Letter"),
             PaperSize::Legal => serializer.serialize_str("Legal"),
             PaperSize::Tabloid => serializer.serialize_str("Tabloid"),
@@ -176,12 +184,16 @@ impl<'de> serde::Deserialize<'de> for PaperSize {
                     "A3" => Ok(PaperSize::A3),
                     "A4" => Ok(PaperSize::A4),
                     "A5" => Ok(PaperSize::A5),
+                    "B4" => Ok(PaperSize::B4),
+                    "B5" => Ok(PaperSize::B5),
                     "Letter" => Ok(PaperSize::Letter),
                     "Legal" => Ok(PaperSize::Legal),
                     "Tabloid" => Ok(PaperSize::Tabloid),
                     _ => Err(de::Error::unknown_variant(
                         value,
-                        &["A3", "A4", "A5", "Letter", "Legal", "Tabloid", "Custom"],
+                        &[
+                            "A3", "A4", "A5", "B4", "B5", "Letter", "Legal", "Tabloid", "Custom",
+                        ],
                     )),
                 }
             }

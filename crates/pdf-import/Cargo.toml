@@ -1,0 +1,17 @@
+[package]
+name = "pdf-import"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+pdf-typeset = { path = "../pdf-typeset" }
+ureq = "3.3"
+url = "2.5"
+regex = "1"
+thiserror.workspace = true
+log.workspace = true

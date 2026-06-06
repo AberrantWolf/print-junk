@@ -42,6 +42,24 @@ enum Commands {
         card_height_in: f32,
     },
 
+    /// Import an HTML / arXiv document and re-typeset it to PDF
+    Import {
+        /// Source: a URL, an arXiv id/abs URL (e.g. 2310.12345), or a local HTML file
+        source: String,
+
+        /// Output PDF file
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Output paper size
+        #[arg(long, default_value = "a4", value_enum)]
+        paper: PaperArg,
+
+        /// Uniform page margin in millimeters (overrides the template default)
+        #[arg(long, value_parser = positive_f32)]
+        margin_mm: Option<f32>,
+    },
+
     /// Impose PDF pages for bookbinding
     Impose {
         /// Input PDF file(s) - can specify multiple
@@ -246,6 +264,8 @@ enum PaperArg {
     A3,
     A4,
     A5,
+    B4,
+    B5,
     Letter,
     Legal,
     Tabloid,
@@ -300,6 +320,8 @@ impl From<PaperArg> for pdf_impose::PaperSize {
             PaperArg::A3 => Self::A3,
             PaperArg::A4 => Self::A4,
             PaperArg::A5 => Self::A5,
+            PaperArg::B4 => Self::B4,
+            PaperArg::B5 => Self::B5,
             PaperArg::Letter => Self::Letter,
             PaperArg::Legal => Self::Legal,
             PaperArg::Tabloid => Self::Tabloid,
@@ -401,6 +423,33 @@ async fn main() -> Result<()> {
                 "Generated {} flashcards → {}",
                 cards.len(),
                 output.display()
+            );
+        }
+
+        Commands::Import {
+            source,
+            output,
+            paper,
+            margin_mm,
+        } => {
+            let imported = pdf_import::fetch(&source)?;
+            let mut config = pdf_typeset::TypesetConfig {
+                page_size: paper.into(),
+                ..Default::default()
+            };
+            if let Some(m) = margin_mm {
+                config.margin_top_mm = m;
+                config.margin_bottom_mm = m;
+                config.margin_inner_mm = m;
+                config.margin_outer_mm = m;
+            }
+            let pdf = pdf_typeset::typeset_html(&imported.html, &imported, &config)?;
+            std::fs::write(&output, &pdf)?;
+            println!(
+                "Imported {} → {} ({} KB)",
+                imported.source_url.as_deref().unwrap_or(source.as_str()),
+                output.display(),
+                pdf.len() / 1024
             );
         }
 

@@ -4,6 +4,7 @@ members = [
     "crates/pdf-async-runtime",
     "crates/pdf-flashcards",
     "crates/pdf-impose",
+    "crates/pdf-import",
     "crates/pdf-typeset",
     "crates/pdf-units",
     "crates/print-junk-cli",

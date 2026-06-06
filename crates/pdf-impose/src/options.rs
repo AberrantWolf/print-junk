@@ -373,9 +373,7 @@ impl ImpositionOptions {
 
 #[cfg(feature = "serde")]
 mod serde_impls {
-    use super::{
-        BindingType, OutputFormat, PageArrangement, Rotation, ScalingMode, SplitMode,
-    };
+    use super::{BindingType, OutputFormat, PageArrangement, Rotation, ScalingMode, SplitMode};
     use serde::{Deserialize, Serialize};
 
     // Manual implementations for types that don't derive Serialize/Deserialize

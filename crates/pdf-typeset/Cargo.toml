@@ -13,11 +13,22 @@ pdf-units = { path = "../pdf-units" }
 serde = { workspace = true, features = ["derive"] }
 typst = "0.14"
 typst-pdf = "0.14"
-typst-as-lib = { version = "0.15", features = ["typst-kit-fonts"] }
+# embed-fonts bundles typst-assets (incl. New Computer Modern Math) so math
+# validation has a deterministic math font without relying on the system set.
+typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
 pulldown-cmark = { version = "0.13", default-features = false }
+scraper = "0.27"
 fontdb = "0.23"
 thiserror.workspace = true
 log.workspace = true
+
+# Math conversion (see `math/`): TeX -> native Typst (primary), and an SVG image
+# fallback (RaTeX) for the structural residue. Desktop-only, like the rest of the crate.
+tex2typst-rs = "0.4"
+ratex-svg = { version = "0.1.11", features = ["embed-fonts"] }
+ratex-layout = "0.1.11"
+ratex-parser = "0.1.11"
+ratex-types = "0.1.11"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
