@@ -93,13 +93,22 @@ impl<E: TexMathEngine> MathPipeline<E> {
         }
 
         // Tier 2: SVG image of the original math (rendered from normalized TeX).
-        if let Some(svg) = image::render_svg(&tex, src.display) {
+        // RaTeX reports geometry in em, so scale the image to the text font size
+        // (`height: …em`) and, for inline math, hang it below the baseline by its
+        // descent (`baseline: …em`) so it sits on the text baseline rather than
+        // floating on the box's bottom edge. Display math gets its own centered line.
+        if let Some(m) = image::render_svg(&tex, src.display) {
             let name = format!("math-{:016x}.svg", hash(src.tex));
-            let typst = format!("#box(image(\"{name}\"))");
+            let img = format!("image(\"{name}\", height: {:.4}em)", m.height_em);
+            let typst = if src.display {
+                format!("#align(center, box({img}))")
+            } else {
+                format!("#box(baseline: {:.4}em, {img})", m.depth_em)
+            };
             return MathRender {
                 typst,
                 tier: Tier::Image,
-                assets: vec![MathAsset { name, svg }],
+                assets: vec![MathAsset { name, svg: m.svg }],
             };
         }
 
@@ -182,7 +191,25 @@ mod tests {
         });
         assert_eq!(r.tier, Tier::Image);
         assert_eq!(r.assets.len(), 1);
+        // Display image math is scaled to the text em and centered on its own line.
         assert!(r.typst.contains("image("));
+        assert!(r.typst.contains("height:") && r.typst.contains("em"));
+        assert!(r.typst.starts_with("#align(center"));
         assert!(r.assets[0].svg.starts_with(b"<") || !r.assets[0].svg.is_empty());
+    }
+
+    #[test]
+    fn inline_image_math_is_baseline_shifted_and_scaled() {
+        // Same residue case as above (defeats the native path), but inline.
+        let pipe = MathPipeline::default();
+        let r = pipe.render(&MathSource {
+            tex: "\\operatornamewithlimits{argmax}_{x} f(x)",
+            display: false,
+        });
+        assert_eq!(r.tier, Tier::Image);
+        // Inline images hang below the baseline by their descent and track text size.
+        assert!(r.typst.contains("baseline:"), "got {:?}", r.typst);
+        assert!(r.typst.contains("height:") && r.typst.contains("em"));
+        assert!(!r.typst.contains("align(center"));
     }
 }
