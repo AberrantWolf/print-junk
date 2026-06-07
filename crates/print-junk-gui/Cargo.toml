@@ -21,14 +21,16 @@ serde_json.workspace = true
 log = "0.4"
 chrono = "0.4"
 lopdf.workspace = true
+# Shared interactive page widget, used by the preview in display-only mode. Pure
+# egui/image (no PDFium), so it's portable to wasm and a normal all-target dep —
+# only the renderer below is desktop-gated. Fetched from GitHub automatically.
+junk-libs-egui-docview = { git = "https://github.com/AberrantWolf/junk-libs" }
 
 # PDF rendering + typesetting (not available on WASM)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Shared PDFium render core (binding + render + text extraction). Vendors its own
-# PDFium binary via its build.rs, so print-junk no longer downloads or links it.
-# Fetched from GitHub automatically — no sibling clone needed. For local
-# co-development against a sibling junk-libs checkout, uncomment the `[patch]` in
-# the workspace-root Cargo.toml.
+# Shared PDFium render core: vendors its own binary via build.rs, gated behind the
+# pdf-viewer feature. For local co-development against a sibling junk-libs
+# checkout, uncomment the `[patch]` in the workspace-root Cargo.toml.
 junk-libs-pdfium = { git = "https://github.com/AberrantWolf/junk-libs", optional = true }
 pdf-typeset = { path = "../pdf-typeset" }
 pdf-import = { path = "../pdf-import" }

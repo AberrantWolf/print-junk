@@ -51,6 +51,7 @@ env_logger = "0.11"
 # is absent, e.g. on a CI runner that only checks out print-junk).
 # [patch."https://github.com/AberrantWolf/junk-libs"]
 # junk-libs-pdfium = { path = "../junk-libs/junk-libs-pdfium" }
+# junk-libs-egui-docview = { path = "../junk-libs/junk-libs-egui-docview" }
 
 [workspace.lints.clippy]
 # Correctness & suspicious code

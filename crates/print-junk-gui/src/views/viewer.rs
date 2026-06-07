@@ -1,465 +1,182 @@
+//! The PDF preview, built on the shared `junk-libs-egui-docview` widget in
+//! display-only mode.
+//!
+//! Rendering itself stays on the async worker (`handlers::viewer`, behind the
+//! `pdf-viewer` feature): [`PreviewDoc`] is a UI-side [`PageModel`] adapter whose
+//! `rerender_page` just sends a [`PdfCommand`], and the decoded result is handed
+//! back via [`ViewerState::set_rendered_page`]. So the UI thread never renders,
+//! the worker keeps its LRU page cache, and `DocView` provides zoom/pan/nav.
+
 use eframe::egui;
 use pdf_async_runtime::{DocumentId, PdfCommand};
 use tokio::sync::mpsc;
 
-use crate::viewer::quantize_zoom;
+use junk_libs_egui_docview::{DocView, PageModel, Rect, RegionId};
 
-/// Zoom state for the PDF viewer. When present, zoom controls are shown.
-#[derive(Clone)]
-pub struct ZoomState {
-    /// Current zoom as percentage (25.0..=400.0)
-    pub zoom_percent: f32,
-    /// Whether "fit to window" mode is active
-    pub fit_to_window: bool,
-    /// Quantized zoom percentage of the currently displayed texture
-    pub rendered_zoom: Option<u32>,
-    /// Native page dimensions in PDF points (set after first render)
-    pub page_native_size: Option<(f32, f32)>,
-    /// Last known scroll offset (updated each frame from `ScrollArea` output)
-    last_scroll_offset: egui::Vec2,
-    /// Last known viewport size (updated each frame from `ScrollArea` output)
-    last_viewport_size: egui::Vec2,
-    /// Override scroll offset for the next frame (set on zoom change, consumed by `ScrollArea`)
-    scroll_offset_override: Option<egui::Vec2>,
+/// Page size (US Letter, points) assumed before a document's first render lands,
+/// so the widget can lay out and request that render. Replaced by the real size
+/// as soon as any page renders.
+const DEFAULT_PAGE_SIZE: (f32, f32) = (612.0, 792.0);
+
+/// UI-side [`PageModel`] for the preview: a thin adapter over the async worker.
+/// It never renders — `rerender_page` sends a command and the result arrives via
+/// [`ViewerState::set_rendered_page`]. Display-only, so the region methods are
+/// no-ops.
+pub struct PreviewDoc {
+    doc_id: DocumentId,
+    page_count: usize,
+    command_tx: mpsc::UnboundedSender<PdfCommand>,
+    /// The one page held for display: `(index, RGBA bitmap)`. `DocView` only ever
+    /// asks for the current page, so a single slot suffices — the worker keeps the
+    /// LRU cache of the rest. `None` until the page's render arrives.
+    slot: Option<(usize, image::RgbaImage)>,
+    /// Most recent page size in points, used to lay out pages whose bitmap hasn't
+    /// arrived yet (PDF pages are usually uniform); a default until first render.
+    page_size: (f32, f32),
 }
 
-impl Default for ZoomState {
-    fn default() -> Self {
+impl PreviewDoc {
+    fn new(
+        doc_id: DocumentId,
+        page_count: usize,
+        command_tx: mpsc::UnboundedSender<PdfCommand>,
+    ) -> Self {
         Self {
-            zoom_percent: 100.0,
-            fit_to_window: true,
-            rendered_zoom: None,
-            page_native_size: None,
-            last_scroll_offset: egui::Vec2::ZERO,
-            last_viewport_size: egui::Vec2::ZERO,
-            scroll_offset_override: None,
+            doc_id,
+            page_count,
+            command_tx,
+            slot: None,
+            page_size: DEFAULT_PAGE_SIZE,
         }
     }
 }
 
-impl ZoomState {
-    /// Reset render-derived fields while keeping user preferences (zoom level, fit mode).
-    /// Called when switching to a new document that may have different dimensions.
-    fn preserve_for_new_document(&mut self) {
-        self.rendered_zoom = None;
-        self.page_native_size = None;
-        self.scroll_offset_override = None;
+impl PageModel for PreviewDoc {
+    fn page_count(&self) -> usize {
+        self.page_count
     }
 
-    /// Compute a scroll offset that preserves the viewport center when zoom changes.
-    /// `anchor_offset` is the point in viewport coordinates to keep stable
-    /// (e.g. `viewport_size/2` for center, or cursor position for scroll-zoom).
-    fn compute_scroll_for_zoom(
-        &self,
-        old_zoom: f32,
-        new_zoom: f32,
-        anchor_offset: egui::Vec2,
-    ) -> egui::Vec2 {
-        let ratio = new_zoom / old_zoom;
-        // The anchor point in content coordinates (before zoom change)
-        let anchor_in_content = self.last_scroll_offset + anchor_offset;
-        // After zoom, that same logical point moves to anchor_in_content * ratio
-        // We want it to still be at anchor_offset within the viewport
-        let new_offset = anchor_in_content * ratio - anchor_offset;
-        // Clamp to non-negative (can't scroll before content start)
-        egui::vec2(new_offset.x.max(0.0), new_offset.y.max(0.0))
+    fn page_size(&self, _page: usize) -> Option<(f32, f32)> {
+        // Always known (the real size once anything has rendered, else a default),
+        // so DocView lays out and drives the render request even before the first
+        // bitmap arrives. `None` only when the document is empty.
+        (self.page_count > 0).then_some(self.page_size)
     }
+
+    fn page_bitmap(&self, page: usize) -> Option<&image::RgbaImage> {
+        // Only return the bitmap when it is *this* page's, so a stale slot (after
+        // navigating before the new page renders) never textures the wrong page.
+        match &self.slot {
+            Some((p, img)) if *p == page => Some(img),
+            _ => None,
+        }
+    }
+
+    fn rerender_page(&mut self, page: usize, scale: f32) {
+        // Fire-and-forget: ask the worker to render this page. The worker maps
+        // `zoom_level` straight to the render scale (pixels per point).
+        let _ = self.command_tx.send(PdfCommand::ViewerRenderPage {
+            doc_id: self.doc_id,
+            page_index: page,
+            zoom_level: scale,
+        });
+    }
+
+    // Display-only: no regions.
+    fn regions_on(&self, _page: usize) -> Vec<(RegionId, Rect)> {
+        Vec::new()
+    }
+    fn add_region(&mut self, _page: usize, _rect: Rect) -> RegionId {
+        RegionId(0)
+    }
+    fn region_rect_mut(&mut self, _id: RegionId) -> Option<&mut Rect> {
+        None
+    }
+    fn remove_region(&mut self, _id: RegionId) {}
 }
 
-#[derive(Clone)]
+/// State for one preview/viewer instance: the document adapter, the widget's view
+/// state, the current page, and whether to offer a Close button.
 pub struct ViewerState {
-    pub current_doc_id: Option<DocumentId>,
-    pub current_page: usize,
-    pub total_pages: usize,
-    pub page_texture: Option<egui::TextureHandle>,
-    /// When Some, zoom controls are shown and zoom rendering is active.
-    pub zoom: Option<ZoomState>,
-    /// Whether to show the "Close PDF" button (false for embedded previews)
-    pub show_close_button: bool,
+    doc: PreviewDoc,
+    view: DocView,
+    current_page: usize,
+    show_close_button: bool,
 }
 
 impl ViewerState {
-    #[allow(dead_code)]
-    pub fn new(doc_id: DocumentId, page_count: usize) -> Self {
+    pub fn new(
+        doc_id: DocumentId,
+        page_count: usize,
+        show_close_button: bool,
+        command_tx: mpsc::UnboundedSender<PdfCommand>,
+    ) -> Self {
         Self {
-            current_doc_id: Some(doc_id),
+            doc: PreviewDoc::new(doc_id, page_count, command_tx),
+            view: DocView::default(),
             current_page: 0,
-            total_pages: page_count,
-            page_texture: None,
-            zoom: None,
-            show_close_button: true,
+            show_close_button,
         }
     }
 
-    /// Get the zoom level as a fraction for render commands.
-    /// Returns 0.0 when zoom is disabled (legacy mode).
-    pub fn zoom_fraction(&self) -> f32 {
-        self.zoom.as_ref().map_or(0.0, |z| z.zoom_percent / 100.0)
+    /// The document this viewer is showing (for routing worker updates).
+    pub fn current_doc_id(&self) -> DocumentId {
+        self.doc.doc_id
     }
 
-    /// Update this viewer for a new document, preserving user-facing state
-    /// (page position, zoom, texture) where possible.
-    /// Returns the old `doc_id` if one existed (for cleanup).
+    /// Total pages in the document (for prefetch bounds).
+    pub fn total_pages(&self) -> usize {
+        self.doc.page_count
+    }
+
+    /// Store a freshly rendered page from the worker. `width`/`height` are the
+    /// raster size; `size_pts` is the page's native point size (or `(0, 0)` for a
+    /// cache hit, in which case the previously known size is kept). Only the
+    /// current page is held — the worker caches the rest.
+    pub fn set_rendered_page(
+        &mut self,
+        page_index: usize,
+        width: usize,
+        height: usize,
+        rgba: Vec<u8>,
+        size_pts: (f32, f32),
+    ) {
+        if size_pts.0 > 0.0 && size_pts.1 > 0.0 {
+            self.doc.page_size = size_pts;
+        }
+        if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, rgba) {
+            self.doc.slot = Some((page_index, img));
+        }
+    }
+
+    /// Point this viewer at a new document (e.g. a re-imposed preview), keeping
+    /// the user's page position where it is still valid. Returns the previous doc
+    /// id so the caller can free it in the worker.
     pub fn update_for_new_document(
         &mut self,
         new_doc_id: DocumentId,
         new_page_count: usize,
-    ) -> Option<DocumentId> {
-        let old_doc_id = self.current_doc_id.replace(new_doc_id);
-        self.total_pages = new_page_count;
-        if new_page_count == 0 {
-            self.current_page = 0;
-        } else {
-            self.current_page = self.current_page.min(new_page_count - 1);
-        }
-        if let Some(zoom) = &mut self.zoom {
-            zoom.preserve_for_new_document();
-        }
-        old_doc_id
+    ) -> DocumentId {
+        let old = self.doc.doc_id;
+        self.doc.doc_id = new_doc_id;
+        self.doc.page_count = new_page_count;
+        self.doc.slot = None;
+        self.doc.page_size = DEFAULT_PAGE_SIZE;
+        self.view.reset();
+        self.current_page = self.current_page.min(new_page_count.saturating_sub(1));
+        old
     }
 }
 
-/// Zoom step: +25% below 100%, +50% above 100%
-fn zoom_step_up(current: f32) -> f32 {
-    if current < 100.0 {
-        (current + 25.0).min(400.0)
-    } else {
-        (current + 50.0).min(400.0)
-    }
-}
-
-fn zoom_step_down(current: f32) -> f32 {
-    if current <= 100.0 {
-        (current - 25.0).max(25.0)
-    } else {
-        (current - 50.0).max(25.0)
-    }
-}
-
-/// Navigate the viewer to a specific page and send a render command.
-fn navigate_to_page(
-    state: &mut ViewerState,
-    page: usize,
-    command_tx: &mpsc::UnboundedSender<PdfCommand>,
-) {
-    let page = page.min(state.total_pages.saturating_sub(1));
-    if page == state.current_page {
-        return;
-    }
-    state.current_page = page;
-    if let Some(doc_id) = state.current_doc_id {
-        let _ = command_tx.send(PdfCommand::ViewerRenderPage {
-            doc_id,
-            page_index: state.current_page,
-            zoom_level: state.zoom_fraction(),
-        });
-        log::info!("Rendering page {}...", state.current_page + 1);
-    }
-}
-
+/// Render the preview pane. With a document loaded it shows the display-only
+/// `DocView`; otherwise it shows an open prompt (the standalone Viewer tab —
+/// embedded previews show their own placeholder before calling this).
 pub fn show_viewer(
     ui: &mut egui::Ui,
     viewer_state: &mut Option<ViewerState>,
     command_tx: &mpsc::UnboundedSender<PdfCommand>,
 ) {
-    if let Some(state) = viewer_state {
-        // Show navigation bar
-        ui.horizontal(|ui| {
-            let can_go_back = state.current_page > 0;
-            let can_go_forward = state.current_page < state.total_pages.saturating_sub(1);
-
-            if ui
-                .add_enabled(can_go_back, egui::Button::new("◀ Previous"))
-                .clicked()
-            {
-                navigate_to_page(state, state.current_page.saturating_sub(1), command_tx);
-            }
-
-            ui.label(format!(
-                "Page {} of {}",
-                state.current_page + 1,
-                state.total_pages
-            ));
-
-            if ui
-                .add_enabled(can_go_forward, egui::Button::new("Next ▶"))
-                .clicked()
-            {
-                navigate_to_page(state, state.current_page + 1, command_tx);
-            }
-
-            // Close button pushed to the right, away from navigation
-            if state.show_close_button {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close PDF").clicked()
-                        && let Some(doc_id) = state.current_doc_id
-                    {
-                        let _ = command_tx.send(PdfCommand::ViewerClose { doc_id });
-                    }
-                });
-            }
-        });
-
-        // Show zoom toolbar if zoom is enabled
-        let mut zoom_changed = false;
-        let old_zoom_percent = state.zoom.as_ref().map_or(100.0, |z| z.zoom_percent);
-        if let Some(zoom) = &mut state.zoom {
-            ui.horizontal(|ui| {
-                // Fit to window button
-                if ui.selectable_label(zoom.fit_to_window, "Fit").clicked() {
-                    zoom.fit_to_window = true;
-                    // Fit zoom will be computed below when we know available size
-                    zoom_changed = true;
-                }
-
-                ui.separator();
-
-                // Preset buttons
-                for preset in [50.0, 100.0, 150.0, 200.0] {
-                    let label = format!("{}%", preset as u32);
-                    if ui
-                        .selectable_label(
-                            !zoom.fit_to_window && (zoom.zoom_percent - preset).abs() < 0.5,
-                            label,
-                        )
-                        .clicked()
-                    {
-                        zoom.zoom_percent = preset;
-                        zoom.fit_to_window = false;
-                        zoom_changed = true;
-                    }
-                }
-
-                ui.separator();
-
-                // Zoom out button
-                if ui.button("−").clicked() {
-                    zoom.zoom_percent = zoom_step_down(zoom.zoom_percent);
-                    zoom.fit_to_window = false;
-                    zoom_changed = true;
-                }
-
-                // Draggable zoom percentage
-                let mut pct = zoom.zoom_percent.round() as i32;
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut pct)
-                            .range(25..=400)
-                            .suffix("%")
-                            .speed(1.0),
-                    )
-                    .changed()
-                {
-                    zoom.zoom_percent = pct as f32;
-                    zoom.fit_to_window = false;
-                    zoom_changed = true;
-                }
-
-                // Zoom in button
-                if ui.button("+").clicked() {
-                    zoom.zoom_percent = zoom_step_up(zoom.zoom_percent);
-                    zoom.fit_to_window = false;
-                    zoom_changed = true;
-                }
-            });
-        }
-
-        ui.separator();
-
-        // Compute fit-to-window zoom before rendering the scroll area
-        if let Some(zoom) = &mut state.zoom
-            && zoom.fit_to_window
-        {
-            let available = ui.available_size();
-            if let Some((pw, ph)) = zoom.page_native_size
-                && pw > 0.0
-                && ph > 0.0
-            {
-                let zoom_w = available.x / pw;
-                let zoom_h = available.y / ph;
-                let fit_percent = zoom_w.min(zoom_h) * 100.0;
-                let fit_percent = fit_percent.clamp(25.0, 400.0);
-                if (fit_percent - zoom.zoom_percent).abs() > 1.0 {
-                    zoom.zoom_percent = fit_percent;
-                    zoom_changed = true;
-                }
-            }
-        }
-
-        // Handle keyboard zoom shortcuts (Cmd/Ctrl + =/-/0)
-        if state.zoom.is_some() {
-            let cmd_held = ui.input(|i| i.modifiers.command);
-            if cmd_held {
-                let fit_pressed = ui.input(|i| i.key_pressed(egui::Key::Num0));
-                let plus_pressed = ui
-                    .input(|i| i.key_pressed(egui::Key::Equals) || i.key_pressed(egui::Key::Plus));
-                let minus_pressed = ui.input(|i| i.key_pressed(egui::Key::Minus));
-
-                if let Some(zoom) = &mut state.zoom {
-                    if fit_pressed {
-                        zoom.fit_to_window = true;
-                        zoom_changed = true;
-                    } else if plus_pressed {
-                        zoom.zoom_percent = zoom_step_up(zoom.zoom_percent);
-                        zoom.fit_to_window = false;
-                        zoom_changed = true;
-                    } else if minus_pressed {
-                        zoom.zoom_percent = zoom_step_down(zoom.zoom_percent);
-                        zoom.fit_to_window = false;
-                        zoom_changed = true;
-                    }
-                }
-            }
-        }
-
-        // Handle Ctrl+scroll zoom (anchored on cursor position)
-        if state.zoom.is_some() {
-            let scroll_zoom = ui.input(|i| {
-                if i.modifiers.command {
-                    let delta = i.smooth_scroll_delta.y;
-                    if delta.abs() > 0.1 {
-                        // Get cursor position relative to the scroll area
-                        let pointer_pos = i.pointer.hover_pos();
-                        Some((delta, pointer_pos))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            });
-            if let Some((delta, pointer_pos)) = scroll_zoom
-                && let Some(zoom) = &mut state.zoom
-            {
-                let old_pct = zoom.zoom_percent;
-                // Scale zoom by scroll delta (positive = zoom in)
-                let change = delta * 0.5; // sensitivity
-                zoom.zoom_percent = (zoom.zoom_percent + change).clamp(25.0, 400.0);
-                zoom.fit_to_window = false;
-                zoom_changed = true;
-
-                // Anchor zoom on cursor position if available
-                if let Some(pos) = pointer_pos {
-                    // Convert screen position to viewport-relative position
-                    // by subtracting the scroll area's top-left (approximated by
-                    // current ui clip rect min, which is close enough)
-                    let viewport_anchor = pos - ui.clip_rect().min;
-                    let viewport_anchor =
-                        egui::vec2(viewport_anchor.x.max(0.0), viewport_anchor.y.max(0.0));
-                    zoom.scroll_offset_override = Some(zoom.compute_scroll_for_zoom(
-                        old_pct,
-                        zoom.zoom_percent,
-                        viewport_anchor,
-                    ));
-                }
-            }
-        }
-
-        // Handle page navigation keyboard shortcuts
-        {
-            let cmd_held = ui.input(|i| i.modifiers.command);
-            if !cmd_held {
-                let prev = ui.input(|i| {
-                    i.key_pressed(egui::Key::ArrowLeft) || i.key_pressed(egui::Key::PageUp)
-                });
-                let next = ui.input(|i| {
-                    i.key_pressed(egui::Key::ArrowRight) || i.key_pressed(egui::Key::PageDown)
-                });
-                let first = ui.input(|i| i.key_pressed(egui::Key::Home));
-                let last = ui.input(|i| i.key_pressed(egui::Key::End));
-
-                if first {
-                    navigate_to_page(state, 0, command_tx);
-                } else if last {
-                    navigate_to_page(state, state.total_pages.saturating_sub(1), command_tx);
-                } else if prev {
-                    navigate_to_page(state, state.current_page.saturating_sub(1), command_tx);
-                } else if next {
-                    navigate_to_page(state, state.current_page + 1, command_tx);
-                }
-            }
-        }
-
-        // Compute scroll position preservation when zoom changes.
-        // Skip if Ctrl+scroll already set a cursor-anchored override.
-        if zoom_changed
-            && let Some(zoom) = &mut state.zoom
-            && zoom.scroll_offset_override.is_none()
-        {
-            let new_zoom = zoom.zoom_percent;
-            if (new_zoom - old_zoom_percent).abs() > 0.1 {
-                // For button/keyboard zoom, anchor on viewport center
-                let anchor = zoom.last_viewport_size * 0.5;
-                zoom.scroll_offset_override =
-                    Some(zoom.compute_scroll_for_zoom(old_zoom_percent, new_zoom, anchor));
-            }
-        }
-
-        // Send render command if zoom changed and quantized level differs
-        if zoom_changed && let (Some(doc_id), Some(zoom)) = (state.current_doc_id, &mut state.zoom)
-        {
-            let new_quantized = quantize_zoom(zoom.zoom_percent / 100.0);
-            if zoom.rendered_zoom != Some(new_quantized) {
-                let _ = command_tx.send(PdfCommand::ViewerRenderPage {
-                    doc_id,
-                    page_index: state.current_page,
-                    zoom_level: zoom.zoom_percent / 100.0,
-                });
-            }
-        }
-
-        // Display page texture if available
-        if let Some(texture) = &state.page_texture {
-            // Compute display size based on zoom
-            let display_size = if let Some(zoom) = &state.zoom {
-                let scale = zoom.zoom_percent / 100.0;
-                if let Some((pw, ph)) = zoom.page_native_size {
-                    egui::vec2(pw * scale, ph * scale)
-                } else {
-                    texture.size_vec2()
-                }
-            } else {
-                texture.size_vec2()
-            };
-
-            // Apply scroll offset override if a zoom change requested it
-            let mut scroll_area = egui::ScrollArea::both();
-            if let Some(zoom) = &mut state.zoom
-                && let Some(offset) = zoom.scroll_offset_override.take()
-            {
-                scroll_area = scroll_area
-                    .horizontal_scroll_offset(offset.x)
-                    .vertical_scroll_offset(offset.y);
-            }
-
-            let scroll_output = scroll_area.show(ui, |ui| {
-                let available = ui.available_size();
-                let content_size = egui::vec2(
-                    display_size.x.max(available.x),
-                    display_size.y.max(available.y),
-                );
-                ui.allocate_ui_with_layout(
-                    content_size,
-                    egui::Layout::centered_and_justified(egui::Direction::TopDown),
-                    |ui| {
-                        ui.image(egui::load::SizedTexture::new(texture.id(), display_size));
-                    },
-                );
-            });
-
-            // Record scroll state for position preservation on next zoom change
-            if let Some(zoom) = &mut state.zoom {
-                zoom.last_scroll_offset = scroll_output.state.offset;
-                zoom.last_viewport_size = scroll_output.inner_rect.size();
-            }
-        } else {
-            ui.centered_and_justified(|ui| {
-                ui.spinner();
-                ui.label("Rendering page...");
-            });
-        }
-    } else {
-        // No PDF loaded - show file loading UI
+    let Some(state) = viewer_state else {
         ui.vertical_centered(|ui| {
             ui.add_space(50.0);
             ui.heading("PDF Viewer");
@@ -469,7 +186,6 @@ pub fn show_viewer(
             {
                 ui.label("Drop a PDF file here or click to open");
                 ui.add_space(10.0);
-
                 if ui.button("Open PDF...").clicked()
                     && let Some(path) = rfd::FileDialog::new()
                         .add_filter("PDF", &["pdf"])
@@ -482,8 +198,103 @@ pub fn show_viewer(
 
             #[cfg(not(feature = "pdf-viewer"))]
             {
-                ui.label("PDF viewing not available in WASM build");
+                ui.label("PDF viewing not available in this build");
             }
         });
+        return;
+    };
+
+    // The Close button (standalone viewer only) goes in the widget's control bar.
+    let mut close_clicked = false;
+    let show_close = state.show_close_button;
+    state
+        .view
+        .show_readonly(ui, &mut state.doc, &mut state.current_page, |ui| {
+            if show_close {
+                ui.separator();
+                if ui.button("Close PDF").clicked() {
+                    close_clicked = true;
+                }
+            }
+        });
+
+    if close_clicked {
+        let _ = command_tx.send(PdfCommand::ViewerClose {
+            doc_id: state.doc.doc_id,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rgba(w: usize, h: usize) -> Vec<u8> {
+        vec![0u8; w * h * 4]
+    }
+
+    /// `page_size` must be known before any render (so `DocView` lays out and
+    /// drives the first request), then track real sizes, and survive cache hits.
+    #[test]
+    fn page_size_defaults_then_tracks_renders() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut v = ViewerState::new(DocumentId(1), 3, false, tx);
+        assert_eq!(v.doc.page_size(0), Some(DEFAULT_PAGE_SIZE));
+        v.set_rendered_page(0, 100, 200, rgba(100, 200), (300.0, 600.0));
+        assert_eq!(v.doc.page_size(0), Some((300.0, 600.0)));
+        // A cache hit reports size (0, 0); the known size must be kept.
+        v.set_rendered_page(1, 100, 200, rgba(100, 200), (0.0, 0.0));
+        assert_eq!(v.doc.page_size(1), Some((300.0, 600.0)));
+    }
+
+    /// The single slot must only texture its own page — never a stale one after
+    /// navigating before the new page's render arrives.
+    #[test]
+    fn page_bitmap_only_for_current_slot_page() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut v = ViewerState::new(DocumentId(1), 3, false, tx);
+        assert!(v.doc.page_bitmap(0).is_none());
+        v.set_rendered_page(2, 10, 10, rgba(10, 10), (300.0, 600.0));
+        assert!(v.doc.page_bitmap(2).is_some());
+        assert!(
+            v.doc.page_bitmap(0).is_none(),
+            "a stale slot must not texture another page"
+        );
+    }
+
+    /// `rerender_page` is the fire-and-forget seam: it sends one render command
+    /// with the page and scale `DocView` asked for.
+    #[test]
+    fn rerender_sends_a_render_command() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut v = ViewerState::new(DocumentId(7), 3, false, tx);
+        v.doc.rerender_page(2, 3.5);
+        match rx.try_recv() {
+            Ok(PdfCommand::ViewerRenderPage {
+                doc_id,
+                page_index,
+                zoom_level,
+            }) => {
+                assert_eq!(doc_id, DocumentId(7));
+                assert_eq!(page_index, 2);
+                assert!((zoom_level - 3.5).abs() < f32::EPSILON);
+            }
+            _ => panic!("expected a ViewerRenderPage command"),
+        }
+    }
+
+    /// Switching documents resets the slot and clamps the page into range.
+    #[test]
+    fn update_for_new_document_resets_and_clamps() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut v = ViewerState::new(DocumentId(1), 10, false, tx);
+        v.current_page = 8;
+        v.set_rendered_page(8, 10, 10, rgba(10, 10), (300.0, 600.0));
+        let old = v.update_for_new_document(DocumentId(2), 3);
+        assert_eq!(old, DocumentId(1));
+        assert_eq!(v.current_doc_id(), DocumentId(2));
+        assert_eq!(v.total_pages(), 3);
+        assert_eq!(v.current_page, 2, "page clamped to the new last page");
+        assert!(v.doc.slot.is_none(), "slot cleared for the new document");
     }
 }

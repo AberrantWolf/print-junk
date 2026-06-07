@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use crate::logger::AppLogger;
 use crate::startup::{Mode, StartupSettings};
 use crate::views::{
-    FlashcardState, ImposeState, ViewerState, ZoomState, show_flashcards, show_impose, show_viewer,
+    FlashcardState, ImposeState, ViewerState, show_flashcards, show_impose, show_viewer,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::views::{TypesettingState, show_typesetting};
@@ -152,23 +152,16 @@ impl PrintJunkApp {
         }
     }
 
-    /// Embedded mode preview viewers, each paired with a texture-debug label.
-    /// `PdfUpdate::ViewerPageRendered`/`ViewerClosed` are routed to whichever of
-    /// these owns the matching document. Add a new mode's preview here and the
-    /// rendering/close plumbing picks it up automatically.
-    fn preview_viewers_mut(&mut self) -> Vec<(&'static str, &mut Option<ViewerState>)> {
-        let mut viewers: Vec<(&'static str, &mut Option<ViewerState>)> = vec![
-            (
-                "flashcard_preview",
-                &mut self.flashcard_state.preview_viewer,
-            ),
-            ("impose_preview", &mut self.impose_state.preview_viewer),
+    /// Embedded mode preview viewers. `PdfUpdate::ViewerPageRendered`/`ViewerClosed`
+    /// are routed to whichever of these owns the matching document. Add a new
+    /// mode's preview here and the rendering/close plumbing picks it up.
+    fn preview_viewers_mut(&mut self) -> Vec<&mut Option<ViewerState>> {
+        let mut viewers: Vec<&mut Option<ViewerState>> = vec![
+            &mut self.flashcard_state.preview_viewer,
+            &mut self.impose_state.preview_viewer,
         ];
         #[cfg(not(target_arch = "wasm32"))]
-        viewers.push((
-            "typeset_preview",
-            &mut self.typesetting_state.preview_viewer,
-        ));
+        viewers.push(&mut self.typesetting_state.preview_viewer);
         viewers
     }
 
@@ -562,6 +555,9 @@ impl eframe::App for PrintJunkApp {
                 }
                 PdfUpdate::ViewerLoaded { doc_id, page_count } => {
                     let is_standalone_viewer = matches!(self.mode, Mode::Viewer);
+                    // Cloned up front so we can hand it to a new ViewerState without
+                    // a second borrow of `self` while `viewer_ref` is held.
+                    let command_tx = self.command_tx.clone();
 
                     // Get the relevant viewer for the active mode
                     let viewer_ref = match self.mode {
@@ -576,45 +572,31 @@ impl eframe::App for PrintJunkApp {
                         Mode::Typesetting => &mut self.viewer_state,
                     };
 
-                    let (old_doc_id, page_to_render) = if let Some(existing) = viewer_ref {
-                        // Update in place — preserves texture, zoom, page, scroll
-                        let old = existing.update_for_new_document(doc_id, page_count);
-                        let page = existing.current_page;
-                        (old, page)
+                    // Point the viewer at the new document, preserving page position
+                    // in place where one already exists. The first render is driven
+                    // by the DocView widget itself (its fire-and-forget request), so
+                    // there's nothing to kick off here.
+                    let old_doc_id = if let Some(existing) = viewer_ref {
+                        Some(existing.update_for_new_document(doc_id, page_count))
                     } else {
-                        // First load — no existing state to preserve
-                        *viewer_ref = Some(ViewerState {
-                            current_doc_id: Some(doc_id),
-                            current_page: 0,
-                            total_pages: page_count,
-                            page_texture: None,
-                            zoom: Some(ZoomState::default()),
-                            show_close_button: is_standalone_viewer,
-                        });
-                        (None, 0)
+                        *viewer_ref = Some(ViewerState::new(
+                            doc_id,
+                            page_count,
+                            is_standalone_viewer,
+                            command_tx,
+                        ));
+                        None
                     };
 
-                    // Clean up old document from worker memory
+                    // Free the replaced document from worker memory.
                     if let Some(old_id) = old_doc_id {
                         let _ = self
                             .command_tx
                             .send(PdfCommand::ViewerClose { doc_id: old_id });
                     }
 
-                    // Render the preserved page at the preserved zoom level
-                    let zoom_level = viewer_ref.as_ref().map_or(1.0, |s| {
-                        let frac = s.zoom_fraction();
-                        if frac <= 0.0 { 1.0 } else { frac }
-                    });
-
                     log::info!("Loaded PDF with {page_count} pages");
                     self.progress = None;
-
-                    let _ = self.command_tx.send(PdfCommand::ViewerRenderPage {
-                        doc_id,
-                        page_index: page_to_render,
-                        zoom_level,
-                    });
                 }
                 PdfUpdate::ViewerPageRendered {
                     doc_id,
@@ -626,49 +608,33 @@ impl eframe::App for PrintJunkApp {
                     page_width_pts,
                     page_height_pts,
                 } => {
-                    let color_image =
-                        egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba_data);
-
-                    // Update the appropriate viewer state (only if doc_id matches)
+                    // Hand the decoded page to whichever viewer owns this document
+                    // (main viewer or an embedded preview). DocView builds the
+                    // texture itself, so we only store the bitmap. At most one
+                    // viewer matches a given doc_id.
+                    let size_pts = (page_width_pts, page_height_pts);
                     if let Some(state) = &mut self.viewer_state
-                        && state.current_doc_id == Some(doc_id)
+                        && state.current_doc_id() == doc_id
                     {
-                        if let Some(texture) = &mut state.page_texture {
-                            texture.set(color_image.clone(), egui::TextureOptions::default());
-                        } else {
-                            state.page_texture = Some(ctx.load_texture(
-                                "pdf_page",
-                                color_image.clone(),
-                                egui::TextureOptions::default(),
-                            ));
-                        }
-                        if let Some(zoom) = &mut state.zoom {
-                            if page_width_pts > 0.0 && page_height_pts > 0.0 {
-                                zoom.page_native_size = Some((page_width_pts, page_height_pts));
-                            }
-                            zoom.rendered_zoom = Some(crate::viewer::quantize_zoom(zoom_level));
-                        }
+                        state.set_rendered_page(
+                            page_index,
+                            width,
+                            height,
+                            rgba_data.clone(),
+                            size_pts,
+                        );
                     }
-
-                    for (name, preview) in self.preview_viewers_mut() {
+                    for preview in self.preview_viewers_mut() {
                         if let Some(state) = preview
-                            && state.current_doc_id == Some(doc_id)
+                            && state.current_doc_id() == doc_id
                         {
-                            if let Some(texture) = &mut state.page_texture {
-                                texture.set(color_image.clone(), egui::TextureOptions::default());
-                            } else {
-                                state.page_texture = Some(ctx.load_texture(
-                                    name,
-                                    color_image.clone(),
-                                    egui::TextureOptions::default(),
-                                ));
-                            }
-                            if let Some(zoom) = &mut state.zoom {
-                                if page_width_pts > 0.0 && page_height_pts > 0.0 {
-                                    zoom.page_native_size = Some((page_width_pts, page_height_pts));
-                                }
-                                zoom.rendered_zoom = Some(crate::viewer::quantize_zoom(zoom_level));
-                            }
+                            state.set_rendered_page(
+                                page_index,
+                                width,
+                                height,
+                                rgba_data.clone(),
+                                size_pts,
+                            );
                         }
                     }
 
@@ -676,18 +642,18 @@ impl eframe::App for PrintJunkApp {
                     let total_pages = self
                         .viewer_state
                         .as_ref()
-                        .map(|s| s.total_pages)
+                        .map(ViewerState::total_pages)
                         .or_else(|| {
                             self.flashcard_state
                                 .preview_viewer
                                 .as_ref()
-                                .map(|s| s.total_pages)
+                                .map(ViewerState::total_pages)
                         })
                         .or_else(|| {
                             self.impose_state
                                 .preview_viewer
                                 .as_ref()
-                                .map(|s| s.total_pages)
+                                .map(ViewerState::total_pages)
                         })
                         .unwrap_or(0);
 
@@ -717,15 +683,15 @@ impl eframe::App for PrintJunkApp {
                     // Only clear if the closed doc_id matches the current one
                     // (stale close events arrive when old documents are replaced)
                     if let Some(state) = &self.viewer_state
-                        && state.current_doc_id == Some(doc_id)
+                        && state.current_doc_id() == doc_id
                     {
                         self.viewer_state = None;
                         log::info!("Closed PDF");
                     }
-                    for (_, preview) in self.preview_viewers_mut() {
+                    for preview in self.preview_viewers_mut() {
                         if preview
                             .as_ref()
-                            .is_some_and(|s| s.current_doc_id == Some(doc_id))
+                            .is_some_and(|s| s.current_doc_id() == doc_id)
                         {
                             *preview = None;
                         }
