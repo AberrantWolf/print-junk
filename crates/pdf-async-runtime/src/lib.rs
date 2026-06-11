@@ -4,13 +4,24 @@ use std::path::PathBuf;
 pub use pdf_flashcards::{Flashcard, FlashcardOptions};
 pub use pdf_impose::{ImpositionOptions, ImpositionStatistics};
 #[cfg(not(target_arch = "wasm32"))]
-pub use pdf_typeset::{ImportStats, InputFormat, TypesetConfig, TypesetInput};
+pub use pdf_typeset::{
+    FRONT_MATTER_ID, ImportStats, InputFormat, OutlineEntry, SectionOverride, TypesetConfig,
+    TypesetInput,
+};
 
 /// Named, in-memory document assets (math SVGs, fetched images) shared across the
 /// UI/worker boundary. `Arc` keeps the per-settings-change recompile messages
 /// cheap pointer clones rather than re-copying image bytes.
 #[cfg(not(target_arch = "wasm32"))]
 pub type SharedAssets = std::sync::Arc<Vec<(String, Vec<u8>)>>;
+
+/// An imported document's heading outline, shared like [`SharedAssets`].
+#[cfg(not(target_arch = "wasm32"))]
+pub type SharedOutline = std::sync::Arc<Vec<OutlineEntry>>;
+
+/// Per-section overrides keyed by [`OutlineEntry::id`] (small; sent by value).
+#[cfg(not(target_arch = "wasm32"))]
+pub type SectionOverrides = std::collections::HashMap<String, SectionOverride>;
 
 /// Commands sent from UI to worker
 #[derive(Debug)]
@@ -99,6 +110,7 @@ pub enum PdfCommand {
     TypesetReconvert {
         html: std::sync::Arc<String>,
         raw_assets: SharedAssets,
+        overrides: SectionOverrides,
         config: TypesetConfig,
     },
     /// Recompile an already-converted import to a preview — the cheap path for
@@ -107,6 +119,8 @@ pub enum PdfCommand {
     TypesetCompileImported {
         body: std::sync::Arc<String>,
         assets: SharedAssets,
+        outline: SharedOutline,
+        overrides: SectionOverrides,
         config: TypesetConfig,
     },
     /// Compile a converted import and write the PDF to `output_path` (desktop-only).
@@ -114,6 +128,8 @@ pub enum PdfCommand {
     TypesetGenerateImported {
         body: std::sync::Arc<String>,
         assets: SharedAssets,
+        outline: SharedOutline,
+        overrides: SectionOverrides,
         config: TypesetConfig,
         output_path: PathBuf,
     },
@@ -122,6 +138,8 @@ pub enum PdfCommand {
     TypesetSendImportedToImpose {
         body: std::sync::Arc<String>,
         assets: SharedAssets,
+        outline: SharedOutline,
+        overrides: SectionOverrides,
         config: TypesetConfig,
     },
 }
@@ -213,6 +231,7 @@ pub enum PdfUpdate {
         raw_assets: SharedAssets,
         body: std::sync::Arc<String>,
         assets: SharedAssets,
+        outline: SharedOutline,
         title: Option<String>,
         stats: ImportStats,
     },
@@ -224,6 +243,7 @@ pub enum PdfUpdate {
         page_count: usize,
         body: std::sync::Arc<String>,
         assets: SharedAssets,
+        outline: SharedOutline,
         title: Option<String>,
         stats: ImportStats,
     },

@@ -4,7 +4,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use pdf_async_runtime::{PdfUpdate, SharedAssets, TypesetConfig, TypesetInput};
+use pdf_async_runtime::{
+    PdfUpdate, SectionOverrides, SharedAssets, SharedOutline, TypesetConfig, TypesetInput,
+};
 use tokio::sync::mpsc;
 
 fn count_pdf_pages(bytes: &[u8]) -> usize {
@@ -88,6 +90,7 @@ pub async fn handle_import(
                 raw_assets: Arc::new(raw_assets),
                 body: Arc::new(doc.body),
                 assets: Arc::new(doc.assets),
+                outline: Arc::new(doc.outline),
                 title: doc.title,
                 stats: doc.stats,
             });
@@ -99,16 +102,19 @@ pub async fn handle_import(
 
 /// Re-convert a cached import from its raw HTML + assets (offline) and compile a
 /// preview — the restore path, which also refreshes the in-memory converted cache.
+/// The session's saved section `overrides` are applied to the compile.
 pub async fn handle_reconvert(
     html: Arc<String>,
     raw_assets: SharedAssets,
+    overrides: SectionOverrides,
     config: TypesetConfig,
     update_tx: &mpsc::UnboundedSender<PdfUpdate>,
 ) {
     let task = tokio::task::spawn_blocking(move || -> Result<_, String> {
         let resolver = pdf_typeset::MapResolver::new(raw_assets.iter().cloned());
         let doc = pdf_typeset::import_html(&html, &resolver);
-        let pdf = pdf_typeset::compile_imported(&doc, &config)
+        let assembled = pdf_typeset::assemble_body(&doc.body, &doc.outline, &overrides);
+        let pdf = pdf_typeset::compile_body(&assembled, &doc.assets, &config)
             .map_err(|e| format!("Typesetting failed: {e}"))?;
         Ok((doc, pdf))
     });
@@ -120,6 +126,7 @@ pub async fn handle_reconvert(
                 page_count,
                 body: Arc::new(doc.body),
                 assets: Arc::new(doc.assets),
+                outline: Arc::new(doc.outline),
                 title: doc.title,
                 stats: doc.stats,
             });
@@ -131,15 +138,19 @@ pub async fn handle_reconvert(
 
 /// Recompile an already-converted import (cached `body` + `assets`) to a preview.
 /// The cheap path taken on settings changes — no network, no re-conversion, and
-/// the `Arc`s avoid copying asset bytes.
+/// the `Arc`s avoid copying asset bytes. Section `overrides` are applied as a
+/// string pass over the cached body.
 pub async fn handle_compile_imported(
     body: Arc<String>,
     assets: SharedAssets,
+    outline: SharedOutline,
+    overrides: SectionOverrides,
     config: TypesetConfig,
     update_tx: &mpsc::UnboundedSender<PdfUpdate>,
 ) {
     let task = tokio::task::spawn_blocking(move || {
-        pdf_typeset::compile_body(&body, &assets, &config)
+        let assembled = pdf_typeset::assemble_body(&body, &outline, &overrides);
+        pdf_typeset::compile_body(&assembled, &assets, &config)
     });
     match task.await {
         Ok(Ok(pdf_bytes)) => {
@@ -186,11 +197,16 @@ pub async fn handle_send_to_impose(
 pub async fn handle_generate_imported(
     body: Arc<String>,
     assets: SharedAssets,
+    outline: SharedOutline,
+    overrides: SectionOverrides,
     config: TypesetConfig,
     output_path: PathBuf,
     update_tx: &mpsc::UnboundedSender<PdfUpdate>,
 ) {
-    let task = tokio::task::spawn_blocking(move || pdf_typeset::compile_body(&body, &assets, &config));
+    let task = tokio::task::spawn_blocking(move || {
+        let assembled = pdf_typeset::assemble_body(&body, &outline, &overrides);
+        pdf_typeset::compile_body(&assembled, &assets, &config)
+    });
     match task.await {
         Ok(Ok(pdf_bytes)) => match tokio::fs::write(&output_path, &pdf_bytes).await {
             Ok(()) => {
@@ -207,10 +223,15 @@ pub async fn handle_generate_imported(
 pub async fn handle_send_imported_to_impose(
     body: Arc<String>,
     assets: SharedAssets,
+    outline: SharedOutline,
+    overrides: SectionOverrides,
     config: TypesetConfig,
     update_tx: &mpsc::UnboundedSender<PdfUpdate>,
 ) {
-    let task = tokio::task::spawn_blocking(move || pdf_typeset::compile_body(&body, &assets, &config));
+    let task = tokio::task::spawn_blocking(move || {
+        let assembled = pdf_typeset::assemble_body(&body, &outline, &overrides);
+        pdf_typeset::compile_body(&assembled, &assets, &config)
+    });
     match task.await {
         Ok(Ok(pdf_bytes)) => send_pdf_to_impose(pdf_bytes, update_tx).await,
         Ok(Err(e)) => send_error(update_tx, format!("Typesetting failed: {e}")),

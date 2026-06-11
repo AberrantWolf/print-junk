@@ -231,14 +231,18 @@ async fn process_command(
         PdfCommand::TypesetReconvert {
             html,
             raw_assets,
+            overrides,
             config,
         } => {
-            handlers::typesetting::handle_reconvert(html, raw_assets, config, update_tx).await;
+            handlers::typesetting::handle_reconvert(html, raw_assets, overrides, config, update_tx)
+                .await;
         }
         #[cfg(not(target_arch = "wasm32"))]
         PdfCommand::TypesetCompileImported {
             mut body,
             mut assets,
+            mut outline,
+            mut overrides,
             mut config,
         } => {
             // Like the text-preview path, settings changes can fire every frame;
@@ -247,12 +251,16 @@ async fn process_command(
                 if let PdfCommand::TypesetCompileImported {
                     body: new_body,
                     assets: new_assets,
+                    outline: new_outline,
+                    overrides: new_overrides,
                     config: new_config,
                 } = next_cmd
                 {
                     log::debug!("Discarding queued import recompile, using newer request");
                     body = new_body;
                     assets = new_assets;
+                    outline = new_outline;
+                    overrides = new_overrides;
                     config = new_config;
                 } else {
                     Box::pin(process_command(
@@ -266,18 +274,25 @@ async fn process_command(
                     .await;
                 }
             }
-            handlers::typesetting::handle_compile_imported(body, assets, config, update_tx).await;
+            handlers::typesetting::handle_compile_imported(
+                body, assets, outline, overrides, config, update_tx,
+            )
+            .await;
         }
         #[cfg(not(target_arch = "wasm32"))]
         PdfCommand::TypesetGenerateImported {
             body,
             assets,
+            outline,
+            overrides,
             config,
             output_path,
         } => {
             handlers::typesetting::handle_generate_imported(
                 body,
                 assets,
+                outline,
+                overrides,
                 config,
                 output_path,
                 update_tx,
@@ -288,10 +303,14 @@ async fn process_command(
         PdfCommand::TypesetSendImportedToImpose {
             body,
             assets,
+            outline,
+            overrides,
             config,
         } => {
-            handlers::typesetting::handle_send_imported_to_impose(body, assets, config, update_tx)
-                .await;
+            handlers::typesetting::handle_send_imported_to_impose(
+                body, assets, outline, overrides, config, update_tx,
+            )
+            .await;
         }
     }
 }

@@ -5,13 +5,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use eframe::egui;
-use pdf_async_runtime::{PdfCommand, SharedAssets};
+use pdf_async_runtime::{PdfCommand, SectionOverrides, SharedAssets, SharedOutline};
 use pdf_typeset::{
     BreakPosition, Color, HAlign, ImportStats, InputFormat, PageBreakRule, TableBorder,
     TypesetConfig, TypesetInput, available_font_families,
 };
 use pdf_units::Orientation;
 use tokio::sync::mpsc;
+
+mod outline;
 
 use super::ViewerState;
 use crate::ui_components::{enum_selector, labeled_drag_clamped, paper_size_picker};
@@ -30,6 +32,9 @@ pub struct ImportSession {
     /// Assets fetched during conversion, keyed by `<img src>` (base64 in the save).
     #[serde(with = "asset_base64")]
     pub raw_assets: Vec<(String, Vec<u8>)>,
+    /// Per-section hide / page-break overrides, keyed by stable section id —
+    /// persisted, and re-applied after the offline re-conversion on restore.
+    pub overrides: SectionOverrides,
     /// In-memory converted artifact (Typst body + assets + stats); not persisted.
     #[serde(skip)]
     pub converted: Option<ConvertedImport>,
@@ -45,6 +50,7 @@ pub struct ImportSession {
 pub struct ConvertedImport {
     pub body: Arc<String>,
     pub assets: SharedAssets,
+    pub outline: SharedOutline,
     pub title: Option<String>,
     pub stats: ImportStats,
 }
@@ -220,6 +226,11 @@ pub fn show_typesetting(
             });
         });
 
+    // The document outline rail (imported documents only) sits between the
+    // controls and the preview. Shown after `maybe_regenerate` ran for this
+    // frame, so its toggles surface on the next frame's regenerate pass.
+    outline::show_outline_rail(ui, state);
+
     let page_count = state.preview_page_count;
     let has_content = !state.source_text.trim().is_empty() || state.import.is_some();
     let overlay = (page_count > 0).then(|| format!("Preview: {page_count} page(s)"));
@@ -379,6 +390,8 @@ fn maybe_regenerate(state: &mut TypesettingState, command_tx: &mpsc::UnboundedSe
                 let _ = command_tx.send(PdfCommand::TypesetCompileImported {
                     body: conv.body.clone(),
                     assets: conv.assets.clone(),
+                    outline: conv.outline.clone(),
+                    overrides: import.overrides.clone(),
                     config: state.config.clone(),
                 });
             }
@@ -389,6 +402,7 @@ fn maybe_regenerate(state: &mut TypesettingState, command_tx: &mpsc::UnboundedSe
                 let _ = command_tx.send(PdfCommand::TypesetReconvert {
                     html: Arc::new(import.html.clone()),
                     raw_assets: Arc::new(import.raw_assets.clone()),
+                    overrides: import.overrides.clone(),
                     config: state.config.clone(),
                 });
             }
@@ -803,6 +817,11 @@ fn actions_section(
         .as_ref()
         .and_then(|i| i.converted.as_ref())
         .cloned();
+    let overrides = state
+        .import
+        .as_ref()
+        .map(|i| i.overrides.clone())
+        .unwrap_or_default();
     let has_output = converted.is_some() || !state.source_text.trim().is_empty();
 
     ui.horizontal(|ui| {
@@ -818,6 +837,8 @@ fn actions_section(
                 Some(conv) => PdfCommand::TypesetGenerateImported {
                     body: conv.body.clone(),
                     assets: conv.assets.clone(),
+                    outline: conv.outline.clone(),
+                    overrides: overrides.clone(),
                     config: state.config.clone(),
                     output_path: path,
                 },
@@ -838,6 +859,8 @@ fn actions_section(
                 Some(conv) => PdfCommand::TypesetSendImportedToImpose {
                     body: conv.body.clone(),
                     assets: conv.assets.clone(),
+                    outline: conv.outline.clone(),
+                    overrides: overrides.clone(),
                     config: state.config.clone(),
                 },
                 None => PdfCommand::TypesetSendToImpose {
@@ -859,10 +882,12 @@ mod tests {
             source: "arXiv:1706.03762".into(),
             html: "<p>hi</p>".into(),
             raw_assets: vec![("fig.png".into(), vec![0u8, 1, 2, 255])],
+            overrides: SectionOverrides::new(),
             // The converted cache must NOT be persisted (holds Arcs / live state).
             converted: Some(ConvertedImport {
                 body: Arc::new("body".into()),
                 assets: Arc::new(Vec::new()),
+                outline: Arc::new(Vec::new()),
                 title: Some("T".into()),
                 stats: ImportStats::default(),
             }),

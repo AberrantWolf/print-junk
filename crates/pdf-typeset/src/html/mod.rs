@@ -23,6 +23,7 @@ use scraper::node::Node;
 use scraper::{ElementRef, Html, Selector};
 
 use crate::markup::escape_inline;
+use crate::outline::{OutlineEntry, SECTION_MARK, strip_markers};
 use crate::typst_table::{Align, Cell, Table as TypstTable};
 use crate::{MathPipeline, MathSource, Tier};
 
@@ -111,6 +112,9 @@ pub struct ImportedDoc {
     /// Named in-memory files (math SVGs, fetched images) to register before
     /// compiling.
     pub assets: Vec<(String, Vec<u8>)>,
+    /// One entry per heading, with its byte offset into `body` — drives
+    /// per-section overrides (see [`crate::assemble_body`]).
+    pub outline: Vec<OutlineEntry>,
     pub title: Option<String>,
     pub stats: ImportStats,
 }
@@ -131,13 +135,16 @@ pub fn import(html: &str, resolver: &dyn AssetResolver) -> ImportedDoc {
             .map(String::from)
             .collect();
     }
-    let body = content_root(&doc)
+    let raw = content_root(&doc)
         .map(|root| imp.render_children(root))
         .unwrap_or_default();
+    let mut outline = imp.outline;
+    let body = strip_markers(&raw, &mut outline);
 
     ImportedDoc {
         body,
         assets: imp.out_assets,
+        outline,
         title: imp.title,
         stats: imp.stats,
     }
@@ -197,6 +204,9 @@ struct Importer<'r> {
     /// `id`s of `<li class="ltx_bibitem">` entries — populated up front so a
     /// citation only emits a `#link` to a label we are certain to render.
     bib_ids: HashSet<String>,
+    /// One entry per emitted heading, in document order. Offsets are filled in
+    /// by [`strip_markers`] once the recursive render has assembled the body.
+    outline: Vec<OutlineEntry>,
     annotation_sel: Selector,
     note_content_sel: Selector,
     tr_sel: Selector,
@@ -215,6 +225,7 @@ impl<'r> Importer<'r> {
             title: None,
             stats: ImportStats::default(),
             bib_ids: HashSet::new(),
+            outline: Vec::new(),
             annotation_sel: Selector::parse("annotation").unwrap(),
             note_content_sel: Selector::parse(".ltx_note_content").unwrap(),
             tr_sel: Selector::parse("tr").unwrap(),
@@ -321,9 +332,25 @@ impl<'r> Importer<'r> {
         }
     }
 
+    /// Emit a heading and record it in the outline. The section id comes from the
+    /// nearest enclosing element with an `id` (`LaTeXML` puts stable ids like
+    /// `S3.SS2` on section containers), so saved overrides survive re-conversion;
+    /// a marker sentinel lets [`strip_markers`] recover the heading's offset.
     fn heading(&mut self, el: ElementRef<'_>, depth: usize) -> String {
+        let id = el
+            .ancestors()
+            .filter_map(ElementRef::wrap)
+            .find_map(|a| a.value().attr("id"))
+            .map_or_else(|| format!("sec-{}", self.outline.len()), String::from);
+        let idx = self.outline.len();
+        self.outline.push(OutlineEntry {
+            id,
+            level: depth.try_into().unwrap_or(u8::MAX),
+            title: heading_text(el),
+            offset: 0, // recorded by strip_markers
+        });
         format!(
-            "\n{} {}\n\n",
+            "\n{SECTION_MARK}{idx}{SECTION_MARK}{} {}\n\n",
             "=".repeat(depth),
             self.render_children(el).trim()
         )
@@ -668,10 +695,14 @@ fn in_thead(tr: ElementRef<'_>) -> bool {
 }
 
 /// Collapse runs of whitespace to single spaces (HTML inline-text semantics).
+/// Drops [`SECTION_MARK`] so source text can never forge a section marker.
 fn collapse_ws(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut prev_ws = false;
     for c in s.chars() {
+        if c == SECTION_MARK {
+            continue;
+        }
         if c.is_whitespace() {
             if !prev_ws {
                 out.push(' ');
@@ -683,6 +714,29 @@ fn collapse_ws(s: &str) -> String {
         }
     }
     out
+}
+
+/// A heading's display text for the outline: all descendant text except math
+/// (whose `<annotation>` carries raw `TeX` source) and skipped markers.
+fn heading_text(el: ElementRef<'_>) -> String {
+    fn collect(el: ElementRef<'_>, out: &mut String) {
+        for child in el.children() {
+            match child.value() {
+                Node::Text(t) => out.push_str(&t.text),
+                Node::Element(e) if e.name() != "math" => {
+                    if let Some(ce) = ElementRef::wrap(child)
+                        && !is_skipped(ce)
+                    {
+                        collect(ce, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut s = String::new();
+    collect(el, &mut s);
+    collapse_ws(&s).trim().to_string()
 }
 
 /// File extension from a URL/path (lowercased, incl. the dot), defaulting to
@@ -729,7 +783,7 @@ mod tests {
       <article class="ltx_document">
         <h1 class="ltx_title ltx_title_document">A Tiny Paper</h1>
         <div class="ltx_TOC">Contents... 1 Intro 2</div>
-        <section class="ltx_section">
+        <section id="S1" class="ltx_section">
           <h2 class="ltx_title ltx_title_section">Introduction</h2>
           <div class="ltx_para"><p class="ltx_p">Hello <em>world</em> with a
             footnote<span class="ltx_note ltx_role_footnote"><sup class="ltx_note_mark">1</sup><span class="ltx_note_outer"><span class="ltx_note_content"><sup class="ltx_note_mark">1</sup><span class="ltx_tag ltx_tag_note">1</span>the note body</span></span></span>
@@ -753,6 +807,22 @@ mod tests {
         assert!(!doc.body.contains("A Tiny Paper"));
         assert!(!doc.body.contains("#outline()"));
         assert!(doc.body.contains("= Introduction"));
+    }
+
+    /// Each heading lands in the outline with `LaTeXML`'s stable section id and
+    /// a byte offset pointing at its markup; no marker sentinel survives.
+    #[test]
+    fn outline_records_sections_with_offsets() {
+        let doc = import(SAMPLE, &NoAssets);
+        assert_eq!(doc.outline.len(), 1, "body: {}", doc.body);
+        let e = &doc.outline[0];
+        assert_eq!((e.id.as_str(), e.level, e.title.as_str()), ("S1", 1, "Introduction"));
+        assert!(
+            doc.body[e.offset..].starts_with("= Introduction"),
+            "offset points at the heading: {}",
+            &doc.body[e.offset..]
+        );
+        assert!(!doc.body.contains('\u{E000}'), "markers stripped");
     }
 
     #[test]

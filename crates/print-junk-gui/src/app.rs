@@ -479,6 +479,7 @@ impl eframe::App for PrintJunkApp {
                     raw_assets,
                     body,
                     assets,
+                    outline,
                     title,
                     stats,
                 } => {
@@ -499,9 +500,12 @@ impl eframe::App for PrintJunkApp {
                         source,
                         html: (*html).clone(),
                         raw_assets: (*raw_assets).clone(),
+                        // A fresh import starts with no section overrides.
+                        overrides: pdf_async_runtime::SectionOverrides::new(),
                         converted: Some(crate::views::ConvertedImport {
                             body,
                             assets,
+                            outline,
                             title,
                             stats,
                         }),
@@ -519,6 +523,7 @@ impl eframe::App for PrintJunkApp {
                     page_count,
                     body,
                     assets,
+                    outline,
                     title,
                     stats,
                 } => {
@@ -527,6 +532,7 @@ impl eframe::App for PrintJunkApp {
                         import.converted = Some(crate::views::ConvertedImport {
                             body,
                             assets,
+                            outline,
                             title,
                             stats,
                         });

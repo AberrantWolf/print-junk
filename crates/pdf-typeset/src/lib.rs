@@ -11,6 +11,7 @@ mod config;
 mod html;
 mod markup;
 mod math;
+mod outline;
 mod template;
 mod typst_table;
 
@@ -21,6 +22,7 @@ pub use config::{
 pub use html::{
     AssetResolver, CapturingResolver, ImportStats, ImportedDoc, MapResolver, NoAssets,
 };
+pub use outline::{FRONT_MATTER_ID, OutlineEntry, SectionOverride, assemble_body};
 pub use math::{MathAsset, MathPipeline, MathRender, MathSource, Tex2TypstRs, TexMathEngine, Tier};
 
 use typst::layout::PagedDocument;
