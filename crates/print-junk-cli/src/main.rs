@@ -444,6 +444,10 @@ async fn main() -> Result<()> {
                 config.margin_outer_mm = m;
             }
             let doc = pdf_typeset::import_html(&imported.html, &imported);
+            // The template owns all front matter: the extracted title becomes the
+            // title page, and the table of contents replaces the source's own.
+            config.doc_title = doc.title.clone().unwrap_or_default();
+            config.generate_toc = true;
             let pdf = pdf_typeset::compile_imported(&doc, &config)?;
             std::fs::write(&output, &pdf)?;
             println!(

@@ -62,14 +62,17 @@ pub fn typeset(input: &TypesetInput, config: &TypesetConfig) -> Result<Vec<u8>, 
 /// [`ImportedDoc`] — Typst `body` markup plus its assets (math SVGs, fetched
 /// images). This is the expensive, config-independent half of an import: it
 /// walks the DOM and validates every equation. Images are fetched through
-/// `resolver`; the source's table of contents and page chrome are dropped and a
-/// fresh outline is generated.
+/// `resolver`; the source's table of contents and page chrome are dropped.
+///
+/// The body is content only. The extracted [`ImportedDoc::title`] is returned for
+/// the caller to feed into [`TypesetConfig::doc_title`] — the template owns all
+/// front matter (title page, table of contents), so the import never duplicates it.
 ///
 /// Separated from [`compile_imported`] so callers can convert once and re-compile
 /// to different page sizes/margins cheaply. The logged [`ImportStats`] record how
 /// the math degraded across tiers.
 pub fn import_html(html: &str, resolver: &dyn AssetResolver) -> ImportedDoc {
-    let doc = html::import(html, resolver, true);
+    let doc = html::import(html, resolver);
     let s = &doc.stats;
     log::info!(
         "imported: math {} native / {} image / {} raw, images {} ok / {} failed, {} footnotes, {} citations",

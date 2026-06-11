@@ -485,6 +485,14 @@ impl eframe::App for PrintJunkApp {
                     self.typesetting_state.importing = false;
                     self.typesetting_state.import_error = None;
                     self.typesetting_state.preview_page_count = page_count;
+                    // Mirror the worker's title defaulting (the preview was compiled
+                    // with it), so the Document section shows the effective title and
+                    // later recompiles agree with what's on screen.
+                    if self.typesetting_state.config.doc_title.trim().is_empty()
+                        && let Some(t) = &title
+                    {
+                        self.typesetting_state.config.doc_title.clone_from(t);
+                    }
                     // Cache the raw payload (persisted) plus the converted artifact
                     // (in-memory) for cheap recompiles on settings changes.
                     self.typesetting_state.import = Some(crate::views::ImportSession {
@@ -511,6 +519,7 @@ impl eframe::App for PrintJunkApp {
                     page_count,
                     body,
                     assets,
+                    title,
                     stats,
                 } => {
                     self.typesetting_state.preview_page_count = page_count;
@@ -518,7 +527,7 @@ impl eframe::App for PrintJunkApp {
                         import.converted = Some(crate::views::ConvertedImport {
                             body,
                             assets,
-                            title: None,
+                            title,
                             stats,
                         });
                     }

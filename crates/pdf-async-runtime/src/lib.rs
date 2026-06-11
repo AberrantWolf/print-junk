@@ -224,6 +224,7 @@ pub enum PdfUpdate {
         page_count: usize,
         body: std::sync::Arc<String>,
         assets: SharedAssets,
+        title: Option<String>,
         stats: ImportStats,
     },
 }

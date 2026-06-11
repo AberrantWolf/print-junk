@@ -56,7 +56,7 @@ pub async fn handle_generate(
 /// artifact to cache in-memory for cheap recompiles.
 pub async fn handle_import(
     source: String,
-    config: TypesetConfig,
+    mut config: TypesetConfig,
     update_tx: &mpsc::UnboundedSender<PdfUpdate>,
 ) {
     let task = tokio::task::spawn_blocking(move || -> Result<_, String> {
@@ -65,6 +65,14 @@ pub async fn handle_import(
         let cap = pdf_typeset::CapturingResolver::new(&imported);
         let doc = pdf_typeset::import_html(&imported.html, &cap);
         let raw_assets = cap.into_assets();
+        // The import emits content only; the extracted title seeds the template's
+        // title page unless the user already chose one. The UI mirrors this same
+        // defaulting when it receives `TypesetImported`, so later recompiles match.
+        if config.doc_title.trim().is_empty()
+            && let Some(title) = &doc.title
+        {
+            config.doc_title.clone_from(title);
+        }
         let pdf = pdf_typeset::compile_imported(&doc, &config)
             .map_err(|e| format!("Typesetting failed: {e}"))?;
         Ok((source, imported.html, raw_assets, doc, pdf))
@@ -112,6 +120,7 @@ pub async fn handle_reconvert(
                 page_count,
                 body: Arc::new(doc.body),
                 assets: Arc::new(doc.assets),
+                title: doc.title,
                 stats: doc.stats,
             });
         }

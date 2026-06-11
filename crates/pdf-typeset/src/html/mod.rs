@@ -109,7 +109,12 @@ pub struct ImportedDoc {
 }
 
 /// Import an HTML document into `Typst` markup plus its assets.
-pub fn import(html: &str, resolver: &dyn AssetResolver, regenerate_outline: bool) -> ImportedDoc {
+///
+/// The body is pure content: the document title is extracted into
+/// [`ImportedDoc::title`] but *not* emitted, and no outline is injected — front
+/// matter (title page, table of contents) is owned by the template via
+/// [`crate::TypesetConfig`], so it is never duplicated.
+pub fn import(html: &str, resolver: &dyn AssetResolver) -> ImportedDoc {
     let doc = Html::parse_document(html);
     let mut imp = Importer::new(resolver);
     if let Ok(sel) = Selector::parse(".ltx_bibitem") {
@@ -119,22 +124,9 @@ pub fn import(html: &str, resolver: &dyn AssetResolver, regenerate_outline: bool
             .map(String::from)
             .collect();
     }
-    let content = content_root(&doc)
+    let body = content_root(&doc)
         .map(|root| imp.render_children(root))
         .unwrap_or_default();
-
-    let mut body = String::new();
-    if let Some(t) = &imp.title {
-        let _ = write!(
-            body,
-            "#align(center)[#text(size: 1.6em, weight: \"bold\")[{}]]\n\n",
-            escape_inline(t)
-        );
-    }
-    if regenerate_outline {
-        body.push_str("#outline()\n\n");
-    }
-    body.push_str(&content);
 
     ImportedDoc {
         body,
@@ -664,20 +656,22 @@ mod tests {
 
     #[test]
     fn extracts_content_and_drops_chrome() {
-        let doc = import(SAMPLE, &NoAssets, true);
+        let doc = import(SAMPLE, &NoAssets);
         assert_eq!(doc.title.as_deref(), Some("A Tiny Paper"));
         // chrome and the source TOC are gone
         assert!(!doc.body.contains("junk nav"));
         assert!(!doc.body.contains("junk footer"));
         assert!(!doc.body.contains("Contents..."));
-        // regenerated outline + section heading present
-        assert!(doc.body.contains("#outline()"));
+        // The title is extracted, not emitted — front matter belongs to the
+        // template, never the body.
+        assert!(!doc.body.contains("A Tiny Paper"));
+        assert!(!doc.body.contains("#outline()"));
         assert!(doc.body.contains("= Introduction"));
     }
 
     #[test]
     fn renders_inline_math_emphasis_and_footnote() {
-        let doc = import(SAMPLE, &NoAssets, false);
+        let doc = import(SAMPLE, &NoAssets);
         assert!(doc.body.contains("_world_"), "emphasis: {}", doc.body);
         assert!(
             doc.body.contains("#footnote[the note body]"),
@@ -706,7 +700,7 @@ mod tests {
 
     #[test]
     fn citation_links_to_labelled_bibitem() {
-        let doc = import(SAMPLE_BIB, &NoAssets, false);
+        let doc = import(SAMPLE_BIB, &NoAssets);
         // Citation to a known bibitem links to the sanitized label.
         assert!(
             doc.body.contains("#link(<bib-bib1>)["),
@@ -743,14 +737,14 @@ mod tests {
 
         // First pass captures the fetched asset.
         let cap = CapturingResolver::new(&OneImage);
-        let first = import(DOC, &cap, false);
+        let first = import(DOC, &cap);
         assert_eq!(first.stats.images_ok, 1);
         let captured = cap.into_assets();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].0, "fig.png");
 
         // Replaying the captured assets reproduces the import with no live source.
-        let replay = import(DOC, &MapResolver::new(captured), false);
+        let replay = import(DOC, &MapResolver::new(captured));
         assert_eq!(replay.stats.images_ok, 1);
         assert_eq!(replay.assets.len(), first.assets.len());
     }
@@ -768,7 +762,7 @@ mod tests {
           </tr></tbody>
         </table></article></body></html>
         "#;
-        let doc = import(TABLE, &NoAssets, false);
+        let doc = import(TABLE, &NoAssets);
         assert!(doc.body.contains("#table("), "table: {}", doc.body);
         assert!(doc.body.contains("columns: 2"), "columns: {}", doc.body);
         // Per-column alignment from the body cells.
