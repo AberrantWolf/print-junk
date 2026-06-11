@@ -4,6 +4,8 @@ use std::path::PathBuf;
 pub use pdf_flashcards::{Flashcard, FlashcardOptions};
 pub use pdf_impose::{ImpositionOptions, ImpositionStatistics};
 #[cfg(not(target_arch = "wasm32"))]
+pub use pdf_import::{ArchiveStatus, AssetReport};
+#[cfg(not(target_arch = "wasm32"))]
 pub use pdf_typeset::{
     FRONT_MATTER_ID, ImportStats, InputFormat, OutlineEntry, SectionOverride, TypesetConfig,
     TypesetInput,
@@ -234,6 +236,8 @@ pub enum PdfUpdate {
         outline: SharedOutline,
         title: Option<String>,
         stats: ImportStats,
+        /// What the asset pipeline did (source archive, figure upgrades).
+        asset_report: AssetReport,
     },
     /// A cached import was re-converted on restore: a preview is ready and the
     /// freshly-converted artifact should replace the in-memory cache (desktop-only).

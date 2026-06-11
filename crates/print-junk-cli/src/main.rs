@@ -456,6 +456,23 @@ async fn main() -> Result<()> {
                 output.display(),
                 pdf.len() / 1024
             );
+            match imported.asset_report() {
+                pdf_import::AssetReport {
+                    archive: pdf_import::ArchiveStatus::Fetched { .. },
+                    figures_upgraded,
+                } => println!("{figures_upgraded} figure(s) upgraded to print resolution"),
+                pdf_import::AssetReport {
+                    archive: pdf_import::ArchiveStatus::Failed(e),
+                    ..
+                } => eprintln!("note: figures kept at web resolution (LaTeX source: {e})"),
+                pdf_import::AssetReport {
+                    archive: pdf_import::ArchiveStatus::Disabled,
+                    ..
+                } => eprintln!(
+                    "note: build with --features hires-import for print-resolution figures"
+                ),
+                _ => {}
+            }
         }
 
         Commands::Impose {

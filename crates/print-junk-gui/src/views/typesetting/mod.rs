@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use eframe::egui;
-use pdf_async_runtime::{PdfCommand, SectionOverrides, SharedAssets, SharedOutline};
+use pdf_async_runtime::{
+    ArchiveStatus, AssetReport, PdfCommand, SectionOverrides, SharedAssets, SharedOutline,
+};
 use pdf_typeset::{
     BreakPosition, Color, HAlign, ImportStats, InputFormat, PageBreakRule, TableBorder,
     TypesetConfig, TypesetInput, available_font_families,
@@ -35,6 +37,9 @@ pub struct ImportSession {
     /// Per-section hide / page-break overrides, keyed by stable section id —
     /// persisted, and re-applied after the offline re-conversion on restore.
     pub overrides: SectionOverrides,
+    /// What the asset pipeline did at import time (source archive, figure
+    /// upgrades) — persisted so the status row survives a restore.
+    pub asset_report: Option<AssetReport>,
     /// In-memory converted artifact (Typst body + assets + stats); not persisted.
     #[serde(skip)]
     pub converted: Option<ConvertedImport>,
@@ -263,7 +268,7 @@ fn source_section(
     import_row(ui, state, command_tx);
 
     if state.import.is_some() {
-        imported_source(ui, state);
+        imported_source(ui, state, command_tx);
     } else {
         editable_source(ui, state);
     }
@@ -307,9 +312,14 @@ fn import_row(
     }
 }
 
-/// Source UI when a document has been imported: a summary + stats, plus a button
-/// to discard the import and return to editing text.
-fn imported_source(ui: &mut egui::Ui, state: &mut TypesettingState) {
+/// Source UI when a document has been imported: a summary + stats, the asset
+/// pipeline's status (with a retry for network failures), plus a button to
+/// discard the import and return to editing text.
+fn imported_source(
+    ui: &mut egui::Ui,
+    state: &mut TypesettingState,
+    command_tx: &mpsc::UnboundedSender<PdfCommand>,
+) {
     let Some(import) = &state.import else { return };
     ui.add_space(4.0);
     if let Some(conv) = &import.converted {
@@ -332,10 +342,90 @@ fn imported_source(ui: &mut egui::Ui, state: &mut TypesettingState) {
                 .weak(),
         );
     }
+
+    let mut retry_source = None;
+    if let Some(report) = &import.asset_report
+        && asset_status_row(ui, report)
+    {
+        retry_source = Some(import.source.clone());
+    }
+    if let Some(source) = retry_source {
+        state.importing = true;
+        state.import_error = None;
+        let _ = command_tx.send(PdfCommand::TypesetImport {
+            source,
+            config: state.config.clone(),
+        });
+    }
+
     if ui.button("✖ Clear import").clicked() {
         state.import = None;
         state.preview_page_count = 0;
     }
+}
+
+/// One-line status of the hi-res figure pipeline, with explanatory tooltips.
+/// Returns `true` when the user asked to retry a failed source-archive fetch.
+fn asset_status_row(ui: &mut egui::Ui, report: &AssetReport) -> bool {
+    let mut retry = false;
+    ui.horizontal(|ui| {
+        match &report.archive {
+            // Non-arXiv sources have no e-print archive — nothing to report.
+            ArchiveStatus::NotApplicable => {}
+            ArchiveStatus::Disabled => {
+                ui.label(egui::RichText::new("⛶ hi-res figures unavailable").small().weak())
+                    .on_hover_text(
+                        "This build has no hi-res figure support \
+                         (the hires-import feature was disabled).",
+                    );
+            }
+            ArchiveStatus::Fetched {
+                files,
+                vector_figures,
+            } => {
+                let (text, color) = if report.figures_upgraded > 0 {
+                    (
+                        format!(
+                            "⛶ {} figure(s) at print resolution",
+                            report.figures_upgraded
+                        ),
+                        egui::Color32::from_rgb(110, 190, 120),
+                    )
+                } else {
+                    (
+                        "⛶ no upgradable figures".to_string(),
+                        ui.visuals().weak_text_color(),
+                    )
+                };
+                ui.colored_label(color, egui::RichText::new(text).small())
+                    .on_hover_text(format!(
+                        "LaTeX source fetched ({files} files, {vector_figures} vector \
+                         figure(s)); {} re-rasterized at print resolution.\n\
+                         Figures that are bitmaps in the source (photos, screenshots) \
+                         have no higher-resolution original to use.",
+                        report.figures_upgraded
+                    ));
+            }
+            ArchiveStatus::Failed(e) => {
+                ui.colored_label(
+                    egui::Color32::from_rgb(220, 170, 80),
+                    egui::RichText::new("⛶ ⚠ figures at web resolution").small(),
+                )
+                .on_hover_text(format!(
+                    "The LaTeX source couldn't be fetched, so vector figures keep \
+                     the HTML's preview resolution:\n{e}"
+                ));
+                if ui
+                    .small_button("⟳ Retry")
+                    .on_hover_text("Re-import and try fetching the source archive again")
+                    .clicked()
+                {
+                    retry = true;
+                }
+            }
+        }
+    });
+    retry
 }
 
 /// Source UI for the editable text path: open a file, pick a format, edit text.
@@ -883,6 +973,7 @@ mod tests {
             html: "<p>hi</p>".into(),
             raw_assets: vec![("fig.png".into(), vec![0u8, 1, 2, 255])],
             overrides: SectionOverrides::new(),
+            asset_report: None,
             // The converted cache must NOT be persisted (holds Arcs / live state).
             converted: Some(ConvertedImport {
                 body: Arc::new("body".into()),

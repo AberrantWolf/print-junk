@@ -6,12 +6,20 @@
 //! network-free. `arXiv` references are normalized to their HTML rendering
 //! (native `arxiv.org/html`, falling back to `ar5iv`), since the abstract page
 //! carries no full text.
+//!
+//! With the `hires` feature, an `arXiv` import also fetches the paper's e-print
+//! source archive and re-rasterizes vector figures at print resolution (see
+//! [`archive`]); the [`AssetReport`] tells the caller what happened.
+
+#[cfg(feature = "hires")]
+mod archive;
 
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use pdf_typeset::AssetResolver;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 
 static NEW_FIND: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\d{4}\.\d{4,5}(?:v\d+)?").unwrap());
@@ -33,6 +41,32 @@ pub enum ImportError {
     Invalid(String),
 }
 
+/// How fetching the `arXiv` e-print source archive (for hi-res figures) went.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ArchiveStatus {
+    /// Not an `arXiv` import — there is no source archive to fetch.
+    NotApplicable,
+    /// Built without the `hires` feature; no fetch was attempted.
+    Disabled,
+    /// The `LaTeX` source was fetched and indexed.
+    Fetched {
+        files: usize,
+        /// Vector figures found in the source — the upgrade candidates.
+        vector_figures: usize,
+    },
+    /// Fetching or unpacking failed (network, PDF-only paper) — retryable.
+    Failed(String),
+}
+
+/// What the asset pipeline did during an import, for status display.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetReport {
+    pub archive: ArchiveStatus,
+    /// Figures replaced with a print-resolution rasterization of their vector
+    /// original.
+    pub figures_upgraded: usize,
+}
+
 /// An acquired document: its HTML plus the base it was loaded from. Implements
 /// [`AssetResolver`] so it can be handed straight to `pdf_typeset::typeset_html`.
 pub struct Imported {
@@ -40,6 +74,34 @@ pub struct Imported {
     /// The resolved URL the HTML came from (`None` for a local file).
     pub source_url: Option<String>,
     base: Base,
+    #[cfg(feature = "hires")]
+    archive: Option<archive::SourceArchive>,
+    archive_status: ArchiveStatus,
+    /// Count of hi-res figure upgrades served, recorded during resolution.
+    upgraded: std::cell::Cell<usize>,
+}
+
+impl Imported {
+    /// What the asset pipeline did — call after the conversion has resolved its
+    /// images, since upgrades are counted as they are served.
+    pub fn asset_report(&self) -> AssetReport {
+        AssetReport {
+            archive: self.archive_status.clone(),
+            figures_upgraded: self.upgraded.get(),
+        }
+    }
+
+    fn new(html: String, source_url: Option<String>, base: Base) -> Self {
+        Self {
+            html,
+            source_url,
+            base,
+            #[cfg(feature = "hires")]
+            archive: None,
+            archive_status: ArchiveStatus::NotApplicable,
+            upgraded: std::cell::Cell::new(0),
+        }
+    }
 }
 
 enum Base {
@@ -59,11 +121,7 @@ pub fn fetch(source: &str) -> Result<Imported, ImportError> {
         let dir = path
             .parent()
             .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        return Ok(Imported {
-            html,
-            source_url: None,
-            base: Base::Dir(dir),
-        });
+        return Ok(Imported::new(html, None, Base::Dir(dir)));
     }
 
     // 2. arXiv reference -> HTML rendering (native, then ar5iv fallback).
@@ -77,11 +135,9 @@ pub fn fetch(source: &str) -> Result<Imported, ImportError> {
                 Ok(html) if looks_like_document(&html) => {
                     let base =
                         url::Url::parse(&url).map_err(|e| ImportError::Invalid(e.to_string()))?;
-                    return Ok(Imported {
-                        html,
-                        source_url: Some(url),
-                        base: Base::Url(base),
-                    });
+                    let mut imported = Imported::new(html, Some(url), Base::Url(base));
+                    imported.attach_archive(&id);
+                    return Ok(imported);
                 }
                 Ok(_) => last = format!("{url}: no document content"),
                 Err(e) => last = format!("{url}: {e}"),
@@ -96,11 +152,55 @@ pub fn fetch(source: &str) -> Result<Imported, ImportError> {
     let base = url::Url::parse(source)
         .map_err(|_| ImportError::Invalid(format!("not a file, arXiv id, or URL: {source}")))?;
     let html = get(source)?;
-    Ok(Imported {
+    Ok(Imported::new(
         html,
-        source_url: Some(source.to_string()),
-        base: Base::Url(base),
-    })
+        Some(source.to_string()),
+        Base::Url(base),
+    ))
+}
+
+impl Imported {
+    /// Try to fetch the e-print source archive for hi-res figure upgrades. A
+    /// failure is recorded for status display, never fatal — the HTML's own
+    /// images still resolve.
+    #[cfg(feature = "hires")]
+    fn attach_archive(&mut self, id: &str) {
+        match archive::fetch_archive(id) {
+            Ok(a) => {
+                log::info!(
+                    "arXiv {id}: source archive fetched ({} files, {} vector figures)",
+                    a.file_count(),
+                    a.vector_figure_count()
+                );
+                self.archive_status = ArchiveStatus::Fetched {
+                    files: a.file_count(),
+                    vector_figures: a.vector_figure_count(),
+                };
+                self.archive = Some(a);
+            }
+            Err(e) => {
+                log::warn!("arXiv {id}: no source archive for hi-res figures: {e}");
+                self.archive_status = ArchiveStatus::Failed(e);
+            }
+        }
+    }
+
+    #[cfg(not(feature = "hires"))]
+    fn attach_archive(&mut self, _id: &str) {
+        self.archive_status = ArchiveStatus::Disabled;
+    }
+
+    /// Print-resolution bytes for `src`, when its vector original is in the
+    /// archive. The HTML's image paths are document-relative with a leading id
+    /// segment (`<id>/Figures/f.png`), so both the full path and the part after
+    /// the first segment are tried against the source tree.
+    #[cfg(feature = "hires")]
+    fn upgraded_bytes(&self, src: &str) -> Option<Vec<u8>> {
+        let archive = self.archive.as_ref()?;
+        let path = src.split(['?', '#']).next().unwrap_or(src);
+        let rel = path.split_once('/').map_or(path, |(_, rest)| rest);
+        archive.upgrade(path).or_else(|| archive.upgrade(rel))
+    }
 }
 
 fn looks_like_document(html: &str) -> bool {
@@ -135,6 +235,11 @@ fn arxiv_id(source: &str) -> Option<String> {
 
 impl AssetResolver for Imported {
     fn fetch(&self, src: &str) -> Option<Vec<u8>> {
+        #[cfg(feature = "hires")]
+        if let Some(bytes) = self.upgraded_bytes(src) {
+            self.upgraded.set(self.upgraded.get() + 1);
+            return Some(bytes);
+        }
         match &self.base {
             Base::Url(base) => {
                 let abs = base.join(src).ok()?;

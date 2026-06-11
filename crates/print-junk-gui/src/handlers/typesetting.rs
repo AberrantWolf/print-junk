@@ -77,10 +77,12 @@ pub async fn handle_import(
         }
         let pdf = pdf_typeset::compile_imported(&doc, &config)
             .map_err(|e| format!("Typesetting failed: {e}"))?;
-        Ok((source, imported.html, raw_assets, doc, pdf))
+        // Read after conversion — figure upgrades are counted as they resolve.
+        let asset_report = imported.asset_report();
+        Ok((source, imported.html, raw_assets, doc, pdf, asset_report))
     });
     match task.await {
-        Ok(Ok((source, html, raw_assets, doc, pdf_bytes))) => {
+        Ok(Ok((source, html, raw_assets, doc, pdf_bytes, asset_report))) => {
             let page_count = count_pdf_pages(&pdf_bytes);
             let _ = update_tx.send(PdfUpdate::TypesetImported {
                 pdf_bytes,
@@ -93,6 +95,7 @@ pub async fn handle_import(
                 outline: Arc::new(doc.outline),
                 title: doc.title,
                 stats: doc.stats,
+                asset_report,
             });
         }
         Ok(Err(msg)) => send_error(update_tx, msg),

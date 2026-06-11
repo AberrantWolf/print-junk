@@ -38,8 +38,11 @@ base64 = "0.22"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 
 [features]
-default = ["pdf-viewer"]
+default = ["pdf-viewer", "hires-import"]
 pdf-viewer = ["dep:junk-libs-pdfium"]
+# Print-resolution figure upgrades for arXiv imports (re-rasterizes vector
+# originals from the e-print source via PDFium).
+hires-import = ["pdf-import/hires"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"

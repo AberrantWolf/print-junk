@@ -482,6 +482,7 @@ impl eframe::App for PrintJunkApp {
                     outline,
                     title,
                     stats,
+                    asset_report,
                 } => {
                     self.typesetting_state.importing = false;
                     self.typesetting_state.import_error = None;
@@ -496,12 +497,21 @@ impl eframe::App for PrintJunkApp {
                     }
                     // Cache the raw payload (persisted) plus the converted artifact
                     // (in-memory) for cheap recompiles on settings changes.
+                    // Re-importing the same source (the assets-retry path) keeps
+                    // its section overrides — the stable ids still match.
+                    let overrides = self
+                        .typesetting_state
+                        .import
+                        .take()
+                        .filter(|s| s.source == source)
+                        .map(|s| s.overrides)
+                        .unwrap_or_default();
                     self.typesetting_state.import = Some(crate::views::ImportSession {
                         source,
                         html: (*html).clone(),
                         raw_assets: (*raw_assets).clone(),
-                        // A fresh import starts with no section overrides.
-                        overrides: pdf_async_runtime::SectionOverrides::new(),
+                        overrides,
+                        asset_report: Some(asset_report),
                         converted: Some(crate::views::ConvertedImport {
                             body,
                             assets,

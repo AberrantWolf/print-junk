@@ -17,6 +17,8 @@ pdf-flashcards = { path = "../pdf-flashcards" }
 pdf-impose = { path = "../pdf-impose" }
 
 # Typesetting is desktop-only (Typst is a large native dependency), so its
-# command/update types are excluded from the WASM build.
+# command/update types are excluded from the WASM build. pdf-import provides the
+# import status types; its `hires` feature is the apps' choice, not ours.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pdf-typeset = { path = "../pdf-typeset" }
+pdf-import = { path = "../pdf-import" }
