@@ -7,6 +7,13 @@
 //! are fetched through an injected [`AssetResolver`] so this module stays
 //! I/O-free and testable from fixtures. Math image fallbacks and fetched images
 //! are returned as named assets for the caller to register as `Typst` files.
+//!
+//! Guiding rule: **never emit a source artifact that we regenerate.** `LaTeXML`
+//! bakes presentational markers into the markup — footnote numbers, list
+//! bullets, its own title and table of contents — that Typst (or the template)
+//! re-creates. Emitting both duplicates them (e.g. a footnote numbered three
+//! times, `- •` bullets), so every such marker is stripped here and the
+//! regenerated form is the only one that survives.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -168,6 +175,13 @@ fn is_skipped(el: ElementRef<'_>) -> bool {
         "ltx_rdf",
         // Affiliation reference marks (daggers/numbers) — noise after reflow.
         "ltx_role_footnotemark",
+        // Source-rendered markers we regenerate (see the module docs): Typst's
+        // `#footnote` numbers the note itself, and list markup draws its own
+        // bullets. `ltx_note_content` carries its own mark/tag copies inline.
+        "ltx_note_mark",
+        "ltx_tag_note",
+        "ltx_note_type",
+        "ltx_tag_item",
     ];
     let v = el.value();
     SKIP_TAGS.contains(&v.name()) || v.classes().any(|c| SKIP_CLASSES.contains(&c))
@@ -187,6 +201,8 @@ struct Importer<'r> {
     note_content_sel: Selector,
     tr_sel: Selector,
     cell_sel: Selector,
+    math_sel: Selector,
+    eqn_tag_sel: Selector,
 }
 
 impl<'r> Importer<'r> {
@@ -203,6 +219,8 @@ impl<'r> Importer<'r> {
             note_content_sel: Selector::parse(".ltx_note_content").unwrap(),
             tr_sel: Selector::parse("tr").unwrap(),
             cell_sel: Selector::parse("td, th").unwrap(),
+            math_sel: Selector::parse("math").unwrap(),
+            eqn_tag_sel: Selector::parse(".ltx_tag_equation").unwrap(),
         }
     }
 
@@ -256,6 +274,14 @@ impl<'r> Importer<'r> {
             "ul" => self.list(el, '-'),
             "ol" => self.list(el, '+'),
             "li" => format!("{}\n", self.render_children(el).trim()),
+            // LaTeXML lays display equations out as tables — route those to the
+            // math pipeline; only genuine tabular content becomes a Typst table.
+            "table"
+                if v.classes()
+                    .any(|c| c == "ltx_equation" || c == "ltx_equationgroup") =>
+            {
+                self.equation_table(el)
+            }
             "table" => self.table(el),
             "img" => self.image(el),
             "a" => self.link(el),
@@ -338,14 +364,28 @@ impl<'r> Importer<'r> {
 
     fn render_math(&mut self, el: ElementRef<'_>) -> String {
         let display = el.value().attr("display") == Some("block");
-        let tex = el
-            .select(&self.annotation_sel)
-            .find(|a| a.value().attr("encoding") == Some("application/x-tex"))
-            .map(|a| a.text().collect::<String>());
-        let Some(tex) = tex else {
+        let Some(tex) = self.tex_of(el) else {
             return String::new();
         };
-        let r = self.math.render(&MathSource { tex: &tex, display });
+        let typst = self.render_tex(&tex, display);
+        if display {
+            format!("\n\n{typst}\n\n")
+        } else {
+            typst
+        }
+    }
+
+    /// The `TeX` source of a `<math>` element, from its `LaTeXML` annotation.
+    fn tex_of(&self, el: ElementRef<'_>) -> Option<String> {
+        el.select(&self.annotation_sel)
+            .find(|a| a.value().attr("encoding") == Some("application/x-tex"))
+            .map(|a| a.text().collect::<String>())
+    }
+
+    /// Run `TeX` through the math pipeline, recording stats and assets, and return
+    /// the `Typst` markup (unwrapped — no display spacing).
+    fn render_tex(&mut self, tex: &str, display: bool) -> String {
+        let r = self.math.render(&MathSource { tex, display });
         match r.tier {
             Tier::Tex => self.stats.math_tex += 1,
             Tier::Image => self.stats.math_image += 1,
@@ -354,11 +394,7 @@ impl<'r> Importer<'r> {
         for asset in r.assets {
             self.out_assets.push((asset.name, asset.svg));
         }
-        if display {
-            format!("\n\n{}\n\n", r.typst)
-        } else {
-            r.typst
-        }
+        r.typst
     }
 
     /// The author block, centered. The `\And` separators `LaTeXML` emits as a
@@ -435,6 +471,56 @@ impl<'r> Importer<'r> {
         self.asset_names.insert(src.to_string(), name.clone());
         self.stats.images_ok += 1;
         Some(name)
+    }
+
+    /// A `LaTeXML` display equation (`ltx_equation`) or `align` group
+    /// (`ltx_equationgroup`), which arrives as a layout `<table>`: each row holds
+    /// the equation's math — split into fragments around the alignment point in
+    /// groups — plus padding cells and an optional equation-number tag. Rendered
+    /// as display math, never as a visible table. The source's equation number is
+    /// kept, right-aligned on the same line, so in-text references to "(N)" stay
+    /// meaningful. (Cross-row alignment of `align` groups is not reproduced; each
+    /// row is centered independently.)
+    fn equation_table(&mut self, el: ElementRef<'_>) -> String {
+        // Collect each row's TeX and number first — the row walk borrows `self`'s
+        // selectors, while rendering needs `&mut self`.
+        let rows: Vec<(String, Option<String>)> = el
+            .select(&self.tr_sel)
+            .filter_map(|tr| {
+                let tex = tr
+                    .select(&self.math_sel)
+                    .filter_map(|m| self.tex_of(m))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if tex.trim().is_empty() {
+                    return None; // spacer row
+                }
+                let number = tr
+                    .select(&self.eqn_tag_sel)
+                    .next()
+                    .map(|t| collapse_ws(&t.text().collect::<String>()).trim().to_string())
+                    .filter(|n| !n.is_empty());
+                Some((tex, number))
+            })
+            .collect();
+
+        let mut out = String::new();
+        for (tex, number) in rows {
+            let typst = self.render_tex(&tex, true);
+            match number {
+                Some(n) => {
+                    let _ = write!(
+                        out,
+                        "\n\n#grid(columns: (1fr, auto), align: (center + horizon, right + horizon), [{typst}], [{}])\n\n",
+                        escape_inline(&n)
+                    );
+                }
+                None => {
+                    let _ = write!(out, "\n\n{typst}\n\n");
+                }
+            }
+        }
+        out
     }
 
     fn table(&mut self, el: ElementRef<'_>) -> String {
@@ -646,7 +732,7 @@ mod tests {
         <section class="ltx_section">
           <h2 class="ltx_title ltx_title_section">Introduction</h2>
           <div class="ltx_para"><p class="ltx_p">Hello <em>world</em> with a
-            footnote<span class="ltx_note ltx_role_footnote"><sup class="ltx_note_mark">1</sup><span class="ltx_note_outer"><span class="ltx_note_content">the note body</span></span></span>
+            footnote<span class="ltx_note ltx_role_footnote"><sup class="ltx_note_mark">1</sup><span class="ltx_note_outer"><span class="ltx_note_content"><sup class="ltx_note_mark">1</sup><span class="ltx_tag ltx_tag_note">1</span>the note body</span></span></span>
             and math <math><semantics><mfrac><mi>a</mi><mi>b</mi></mfrac><annotation encoding="application/x-tex">\frac{a}{b}</annotation></semantics></math>.</p></div>
         </section>
       </article>
@@ -673,6 +759,8 @@ mod tests {
     fn renders_inline_math_emphasis_and_footnote() {
         let doc = import(SAMPLE, &NoAssets);
         assert!(doc.body.contains("_world_"), "emphasis: {}", doc.body);
+        // The note's own mark/tag copies are stripped — Typst's `#footnote`
+        // numbers the note itself, so keeping them would triple the number.
         assert!(
             doc.body.contains("#footnote[the note body]"),
             "{}",
@@ -681,6 +769,89 @@ mod tests {
         assert!(doc.body.contains('$'), "inline math present: {}", doc.body);
         assert_eq!(doc.stats.math_tex, 1);
         assert_eq!(doc.stats.footnotes, 1);
+    }
+
+    /// Real `LaTeXML` list markup carries its own bullet (`ltx_tag_item`); only
+    /// the regenerated Typst marker may survive — never `- •`.
+    #[test]
+    fn list_bullets_are_not_doubled() {
+        const LIST: &str = r#"
+        <html><body><article class="ltx_document">
+          <ul id="S3.I1" class="ltx_itemize">
+            <li id="S3.I1.i1" class="ltx_item" style="list-style-type:none;">
+              <span class="ltx_tag ltx_tag_item">&#x2022;</span>
+              <div class="ltx_para"><p class="ltx_p">Queries come from the decoder.</p></div>
+            </li>
+            <li id="S3.I1.i2" class="ltx_item" style="list-style-type:none;">
+              <span class="ltx_tag ltx_tag_item">&#x2022;</span>
+              <div class="ltx_para"><p class="ltx_p">Keys come from the encoder.</p></div>
+            </li>
+          </ul>
+        </article></body></html>
+        "#;
+        let doc = import(LIST, &NoAssets);
+        assert!(
+            doc.body.contains("- Queries come from the decoder."),
+            "list marker: {}",
+            doc.body
+        );
+        assert!(!doc.body.contains('\u{2022}'), "source bullet survived: {}", doc.body);
+    }
+
+    /// Display equations arrive as `LaTeXML` layout tables; they must render as
+    /// display math with the source's equation number kept right-aligned — never
+    /// as a visible Typst table.
+    #[test]
+    fn equation_tables_render_as_display_math() {
+        const EQN: &str = r#"
+        <html><body><article class="ltx_document">
+          <table id="S3.E1" class="ltx_equation ltx_eqn_table">
+            <tbody><tr class="ltx_equation ltx_eqn_row ltx_align_baseline">
+              <td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+              <td class="ltx_eqn_cell ltx_align_center"><math display="block"><semantics><mrow></mrow><annotation encoding="application/x-tex">a+b</annotation></semantics></math></td>
+              <td class="ltx_eqn_cell ltx_eqn_center_padright"></td>
+              <td class="ltx_eqn_cell ltx_eqn_eqno ltx_align_middle ltx_align_right"><span class="ltx_tag ltx_tag_equation ltx_align_right">(1)</span></td>
+            </tr></tbody>
+          </table>
+        </article></body></html>
+        "#;
+        let doc = import(EQN, &NoAssets);
+        assert!(!doc.body.contains("#table("), "no visible table: {}", doc.body);
+        assert!(
+            doc.body.contains("#grid(columns: (1fr, auto)"),
+            "numbered equation grid: {}",
+            doc.body
+        );
+        assert!(doc.body.contains("(1)"), "equation number kept: {}", doc.body);
+        assert!(doc.body.contains('$'), "display math present: {}", doc.body);
+        assert_eq!(doc.stats.math_tex, 1);
+    }
+
+    /// An `align` group: each row's math fragments (split around the alignment
+    /// point) join into one display equation per row; spacer rows are dropped.
+    #[test]
+    fn equation_group_rows_each_become_display_math() {
+        const GROUP: &str = r#"
+        <html><body><article class="ltx_document">
+          <table id="Sx1.EGx1" class="ltx_equationgroup ltx_eqn_align ltx_eqn_table">
+            <tbody><tr class="ltx_equation ltx_eqn_row">
+              <td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+              <td class="ltx_td ltx_align_right ltx_eqn_cell"><math display="inline"><semantics><annotation encoding="application/x-tex">x</annotation></semantics></math></td>
+              <td class="ltx_td ltx_align_left ltx_eqn_cell"><math display="inline"><semantics><annotation encoding="application/x-tex">=a+b</annotation></semantics></math></td>
+              <td class="ltx_eqn_cell ltx_eqn_center_padright"></td>
+            </tr></tbody>
+            <tbody><tr class="ltx_equation ltx_eqn_row">
+              <td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+              <td class="ltx_td ltx_align_right ltx_eqn_cell"><math display="inline"><semantics><annotation encoding="application/x-tex">y</annotation></semantics></math></td>
+              <td class="ltx_td ltx_align_left ltx_eqn_cell"><math display="inline"><semantics><annotation encoding="application/x-tex">=c</annotation></semantics></math></td>
+              <td class="ltx_eqn_cell ltx_eqn_center_padright"></td>
+            </tr></tbody>
+          </table>
+        </article></body></html>
+        "#;
+        let doc = import(GROUP, &NoAssets);
+        assert!(!doc.body.contains("#table("), "no visible table: {}", doc.body);
+        assert_eq!(doc.stats.math_tex, 2, "one equation per row: {}", doc.body);
     }
 
     const SAMPLE_BIB: &str = r##"
